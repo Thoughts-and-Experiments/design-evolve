@@ -36,13 +36,20 @@ interface CliArgs {
   task?: string
   resume?: string
   screenshot: boolean
+  selection: boolean
   help: boolean
+}
+
+interface SelectionContent {
+  images: Array<{ id: string; dataUrl: string; width: number; height: number }>
+  texts: Array<{ id: string; type: string; text: string }>
 }
 
 function parseArgs(): CliArgs {
   const args = process.argv.slice(2)
   const result: CliArgs = {
     screenshot: false,
+    selection: false,
     help: false,
   }
 
@@ -58,6 +65,9 @@ function parseArgs(): CliArgs {
       i += 2
     } else if (arg === '--screenshot' || arg === '-s') {
       result.screenshot = true
+      i++
+    } else if (arg === '--selection' || arg === '-S') {
+      result.selection = true
       i++
     } else if (!arg.startsWith('-')) {
       // Positional argument is the task
@@ -86,11 +96,14 @@ OPTIONS:
   -h, --help              Show this help message
   -r, --resume <ID>       Resume a previous Claude session
   -s, --screenshot        Include canvas screenshot in context
+  -S, --selection         Extract selected shapes as context (images, text)
 
 EXAMPLES:
   edit "Draw a flowchart with Start, Process, and End boxes"
   edit "Create a blue rectangle at 100,100"
   edit --screenshot "What do you see on the canvas?"
+  edit --selection "Create a UI design based on these references"
+  edit --selection --screenshot "Refine this design"
   edit --resume abc123
   edit                    # Interactive mode
 
@@ -134,6 +147,69 @@ async function getScreenshot(): Promise<string> {
     throw new Error(result.error || 'Failed to get screenshot')
   }
   return result.result
+}
+
+async function getSelectionContent(): Promise<SelectionContent> {
+  // This code runs in the browser context
+  const code = `
+    (async () => {
+      const selectedIds = editor.getSelectedShapeIds();
+      const images = [];
+      const texts = [];
+
+      for (const id of selectedIds) {
+        const shape = editor.getShape(id);
+        if (!shape) continue;
+
+        if (shape.type === 'image') {
+          // Get image as data URL
+          try {
+            const result = await editor.toImage([shape], { format: 'png', scale: 1 });
+            const blob = result.blob;
+            const dataUrl = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.readAsDataURL(blob);
+            });
+            images.push({
+              id: shape.id,
+              dataUrl,
+              width: shape.props.w,
+              height: shape.props.h
+            });
+          } catch (e) {
+            console.error('Failed to export image:', e);
+          }
+        } else if (shape.type === 'text') {
+          texts.push({
+            id: shape.id,
+            type: 'text',
+            text: shape.props.text || ''
+          });
+        } else if (shape.type === 'note') {
+          texts.push({
+            id: shape.id,
+            type: 'note',
+            text: shape.props.text || ''
+          });
+        } else if (shape.type === 'geo' && shape.props.text) {
+          texts.push({
+            id: shape.id,
+            type: 'geo',
+            text: shape.props.text
+          });
+        }
+      }
+
+      return { images, texts };
+    })()
+  `
+
+  const result = await evalCode(code)
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to get selection content')
+  }
+  return result.result as SelectionContent
 }
 
 function log(message: string) {
@@ -189,7 +265,34 @@ function formatCanvasState(state: any): string {
   return output
 }
 
-function buildPrompt(args: CliArgs, contextMd: string, canvasState: any, screenshotDataUrl?: string): string {
+function formatSelectionContent(selection: SelectionContent): string {
+  let output = '## Selected Content (Reference Material)\n\n'
+
+  if (selection.texts.length > 0) {
+    output += '### Text Content\n\n'
+    for (const item of selection.texts) {
+      output += `**${item.id}** (${item.type}):\n`
+      output += '```\n' + item.text + '\n```\n\n'
+    }
+  }
+
+  if (selection.images.length > 0) {
+    output += '### Images\n\n'
+    for (const img of selection.images) {
+      output += `**${img.id}** (${img.width}x${img.height}):\n`
+      output += `[Image data: ${img.dataUrl.substring(0, 80)}...]\n\n`
+    }
+    output += '_Note: Use these images as reference for your design work._\n\n'
+  }
+
+  if (selection.texts.length === 0 && selection.images.length === 0) {
+    output += '_No text or images in selection._\n\n'
+  }
+
+  return output
+}
+
+function buildPrompt(args: CliArgs, contextMd: string, canvasState: any, screenshotDataUrl?: string, selectionContent?: SelectionContent): string {
   let prompt = ''
 
   // System context
@@ -199,6 +302,12 @@ function buildPrompt(args: CliArgs, contextMd: string, canvasState: any, screens
   // Current canvas state
   prompt += formatCanvasState(canvasState)
   prompt += '\n'
+
+  // Selection content if available
+  if (selectionContent && (selectionContent.texts.length > 0 || selectionContent.images.length > 0)) {
+    prompt += '\n'
+    prompt += formatSelectionContent(selectionContent)
+  }
 
   // Screenshot if available
   if (screenshotDataUrl) {
@@ -240,7 +349,7 @@ async function main() {
     process.exit(0)
   }
 
-  log(`Starting edit CLI: task="${args.task || 'interactive'}" screenshot=${args.screenshot} resume=${args.resume || 'none'}`)
+  log(`Starting edit CLI: task="${args.task || 'interactive'}" screenshot=${args.screenshot} selection=${args.selection} resume=${args.resume || 'none'}`)
 
   // Check eval server health
   console.log('Checking eval server...')
@@ -290,8 +399,27 @@ async function main() {
     }
   }
 
+  // Get selection content if requested
+  let selectionContent: SelectionContent | undefined
+  if (args.selection) {
+    console.log('Extracting selection content...')
+    try {
+      const result = await getSelectionContent()
+      if (result && result.images && result.texts) {
+        selectionContent = result
+        const imgCount = selectionContent.images.length
+        const txtCount = selectionContent.texts.length
+        console.log(`Selection: ${imgCount} image(s), ${txtCount} text(s)`)
+      } else {
+        console.log('Selection: nothing selected')
+      }
+    } catch (e: any) {
+      console.warn(`Warning: Could not get selection content: ${e.message}`)
+    }
+  }
+
   // Build the prompt
-  const prompt = buildPrompt(args, contextMd, canvasState, screenshot)
+  const prompt = buildPrompt(args, contextMd, canvasState, screenshot, selectionContent)
 
   // Write prompt to a temp file for debugging
   const promptFile = join(__dirname, '.edit-prompt.md')
