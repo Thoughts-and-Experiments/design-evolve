@@ -6,6 +6,7 @@ description: |
   (2) Generate visual layouts based on reference images and text prompts
   (3) Manipulate shapes, create diagrams, or build visual artifacts
   (4) Work with selected shapes as context for design tasks
+  (5) Generate images with nano-banana-pro and place them on canvas
   This skill operates the tldraw canvas via an eval API. Manually invoked only.
 ---
 
@@ -20,8 +21,9 @@ The `edit` CLI connects you to a tldraw canvas running in the browser. You execu
 ## Invocation
 
 ```bash
-# Basic - open-ended design mode
 cd /Users/slee2/projects/Possibilities/paper
+
+# Basic - open-ended design mode
 bun scripts/edit.ts "Your design task here"
 
 # With selection context (extracts selected shapes' content)
@@ -47,46 +49,102 @@ This enables the flow:
 3. `/tldraw` extracts selection as context
 4. You generate new designs informed by that context
 
+## Image Generation with nano-banana-pro
+
+Generate images and place them on canvas using the nano-banana-pro skill.
+
+### Workflow: Generate and Place Image
+
+```bash
+# 1. Generate the image
+uv run ~/.claude/skills/nano-banana-pro/scripts/generate_image.py \
+  --prompt "A modern login form UI with blue accents, clean minimalist design" \
+  --filename "/tmp/generated-ui.png" \
+  --resolution 2K
+
+# 2. Place on canvas via eval API
+curl -s -X POST http://localhost:3031/eval \
+  -H "Content-Type: application/json" \
+  -d '{"code": "
+    (async () => {
+      const asset = await editor.uploadAssetFromUrl(\"file:///tmp/generated-ui.png\");
+      editor.createShape({
+        type: \"image\",
+        x: 500,
+        y: 100,
+        props: {
+          assetId: asset.id,
+          w: 400,
+          h: 300
+        }
+      });
+      return \"Image placed on canvas\";
+    })()
+  "}'
+```
+
+### Workflow: Edit Selection and Replace
+
+When user wants to transform selected images:
+
+```bash
+# 1. Selection extracted via --selection flag contains image data
+# 2. Save reference image to disk if needed
+# 3. Edit with nano-banana-pro
+uv run ~/.claude/skills/nano-banana-pro/scripts/generate_image.py \
+  --prompt "Transform this into a cartoon style illustration" \
+  --input-image "/tmp/reference.png" \
+  --filename "/tmp/edited-output.png" \
+  --resolution 2K
+
+# 4. Place result on canvas next to original
+```
+
+### Resolution Mapping
+
+- **Thumbnails/icons**: `1K` (default)
+- **UI mockups**: `2K`
+- **High-fidelity designs**: `4K`
+
 ## Design Tasks
 
-### Creating UI Frames
+### Creating UI Frames (Without Image Gen)
 
-When asked to create UI designs:
+When asked to create UI wireframes using shapes:
 1. Use rectangles as frames/containers
 2. Use text shapes for labels and content
 3. Use appropriate colors (light fills for backgrounds, darker for accents)
 4. Maintain consistent spacing (use `stack`, `align`, `distribute` actions)
 5. Place designs to the right of or below reference material
 
-### Placing Generated Images
+### Batch Generation
 
-When image generation is available, the workflow is:
-1. Generate image via image model (MCP/CLI - assume available)
-2. Save to disk (e.g., `/tmp/generated-ui.png`)
-3. Place on canvas via:
-```javascript
-// Images are placed by creating an image shape with an asset
-editor.createAssetFromUrl('file:///tmp/generated-ui.png').then(asset => {
-  editor.createShape({
-    type: 'image',
-    x: 500,
-    y: 100,
-    props: {
-      assetId: asset.id,
-      w: 400,
-      h: 300
-    }
-  })
-})
+For multiple variations:
+```bash
+# Generate 3 variations
+for i in 1 2 3; do
+  uv run ~/.claude/skills/nano-banana-pro/scripts/generate_image.py \
+    --prompt "Modern dashboard UI, variation $i, different color scheme" \
+    --filename "/tmp/dashboard-v$i.png" \
+    --resolution 2K
+done
+
+# Place them in a row on canvas
+curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d '{
+  "code": "
+    (async () => {
+      const files = [\"/tmp/dashboard-v1.png\", \"/tmp/dashboard-v2.png\", \"/tmp/dashboard-v3.png\"];
+      let x = 100;
+      for (const file of files) {
+        const asset = await editor.uploadAssetFromUrl(\"file://\" + file);
+        editor.createShape({ type: \"image\", x, y: 100, props: { assetId: asset.id, w: 300, h: 200 } });
+        x += 350;
+      }
+      return \"Placed 3 variations\";
+    })()
+  "
+}'
 ```
-
-### Layout Principles
-
-- **Reference material**: Keep on the left or top
-- **Generated content**: Place to the right or below references
-- **Spacing**: 50-100px between major sections
-- **Alignment**: Use `align` action to keep things tidy
-- **Labels**: Add text labels to clarify design intent
 
 ## Quick Reference
 
@@ -108,6 +166,19 @@ executeAction({ _type: "stack", shapeIds: ["a", "b", "c"], direction: "vertical"
 executeAction({ _type: "align", shapeIds: ["a", "b", "c"], alignment: "left", gap: 0 })
 ```
 
+### Image Placement
+```javascript
+// Place image from file
+(async () => {
+  const asset = await editor.uploadAssetFromUrl("file:///path/to/image.png");
+  editor.createShape({
+    type: "image",
+    x: 100, y: 100,
+    props: { assetId: asset.id, w: 400, h: 300 }
+  });
+})()
+```
+
 ### Reading Selection
 ```javascript
 // Get selected shape IDs
@@ -117,8 +188,18 @@ const selectedIds = editor.getSelectedShapeIds()
 const shapes = selectedIds.map(id => editor.getShape(id))
 ```
 
+## Typical Session Flow
+
+1. **User sets up references**: Places images, writes text prompts on canvas
+2. **User selects references**: Cmd/Ctrl+click to multi-select
+3. **User invokes `/tldraw`**: "Generate a UI based on these references"
+4. **Skill extracts selection**: Images and text become context
+5. **Generate with nano-banana-pro**: Create new images based on context
+6. **Place on canvas**: Position results near/below references
+7. **Iterate**: User provides feedback, refine designs
+
 ## Assumptions
 
 - Eval server is running (`just dev` in paper/)
 - Browser is connected to eval server
-- Image generation MCP/CLI available (when needed)
+- `GEMINI_API_KEY` environment variable set (for nano-banana-pro)
