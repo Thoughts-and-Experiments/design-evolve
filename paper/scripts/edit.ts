@@ -310,8 +310,9 @@ async function main() {
   // Add allowedTools to let Claude use curl
   claudeArgs.push('--allowedTools', 'Bash(curl*),Read,Write,Edit,Glob,Grep')
 
-  // Stream output
+  // Stream output (--verbose required with stream-json when using -p)
   claudeArgs.push('--output-format', 'stream-json')
+  claudeArgs.push('--verbose')
 
   console.log('\nLaunching Claude...\n')
   log(`Claude args: ${claudeArgs.join(' ')}`)
