@@ -1,0 +1,24 @@
+## COMPLETE - 2026-02-04
+
+**What was accomplished:**
+- Created `scripts/TLDRAW_CONTEXT.md` - comprehensive system prompt for Claude with eval API docs, shape schemas, coordinate system, text anchoring, arrow bends, editor API, agent actions, and example workflows
+- Created `scripts/edit.ts` - Bun CLI that checks eval server health, fetches canvas state, builds prompt, and spawns Claude with stream-json output
+- Updated `justfile` with `edit` and `build-edit` recipes
+- Updated `package.json` with `edit` script
+
+**Prediction review:**
+- Confirmed: "Claude will successfully call curl" - The architecture uses direct curl calls to the eval API, which is reliable
+- Confirmed: "Text anchoring will be tricky" - Documented extensively in TLDRAW_CONTEXT.md with detailed anchor explanations
+- Confirmed: "Session resume will work" - Implemented via `--resume <id>` flag that passes to Claude's `--resume`
+- Not yet tested: "Screenshot context may be too large" - Made `--screenshot` opt-in as recommended
+
+**How to predict better:**
+- Check for existing SDK/client code before designing APIs - the `sdk/tldraw-eval-client.ts` provided excellent reference for the eval API patterns
+- Look at eval-server.ts documentation section for available context (editor, getCanvasState, executeAction, etc.)
+
+**Key insights:**
+- The eval server exposes both low-level `editor.*` API and high-level `executeAction()` - documented both
+- Shape IDs in executeAction use plain strings ("my-rect") but editor API needs prefix ("shape:my-rect") - highlighted this difference
+- Arrow `bend` calculation is complex (perpendicular displacement based on direction) - included full explanation and mnemonic
+- Text shapes are the only shapes using anchor-based positioning - emphasized this exception
+---

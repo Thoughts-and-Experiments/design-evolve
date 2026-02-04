@@ -1,0 +1,87 @@
+# tldraw paper - local development
+
+# Default recipe
+default: dev
+
+# Port configuration
+VITE_PORT := "3030"
+EVAL_PORT := "3031"
+
+# localhostess names for HTTPS
+VITE_NAME := "paper"
+EVAL_NAME := "paper-eval"
+
+# Run all dev servers concurrently
+dev:
+    npx concurrently \
+        --names "vite,eval" \
+        --prefix-colors "cyan,magenta" \
+        "NAME={{VITE_NAME}} npx vite --port {{VITE_PORT}}" \
+        "NAME={{EVAL_NAME}} EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts"
+
+# Run only the vite dev server
+vite:
+    NAME={{VITE_NAME}} npx vite --port {{VITE_PORT}}
+
+# Run only the eval server
+eval:
+    NAME={{EVAL_NAME}} EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts
+
+# Build for production
+build:
+    npx vite build
+
+# Preview production build
+preview:
+    npx vite preview
+
+# Run the SDK example
+example:
+    EVAL_PORT={{EVAL_PORT}} npx tsx sdk/example.ts
+
+# Check health of eval server
+health:
+    curl -s http://localhost:{{EVAL_PORT}}/health | jq .
+
+# Test eval endpoint
+test-eval code:
+    curl -s -X POST http://localhost:{{EVAL_PORT}}/eval \
+        -H "Content-Type: application/json" \
+        -d '{"code": "{{code}}"}' | jq .
+
+# Quick test: get canvas state
+test-state:
+    just test-eval "return getCanvasState()"
+
+# Quick test: get screenshot
+test-screenshot:
+    just test-eval "return await getScreenshot()"
+
+# Clean up processes on dev ports
+clean:
+    -lsof -ti:{{VITE_PORT}} | xargs kill -9 2>/dev/null
+    -lsof -ti:{{EVAL_PORT}} | xargs kill -9 2>/dev/null
+    @echo "Cleaned up processes on ports {{VITE_PORT}} and {{EVAL_PORT}}"
+
+# Install dependencies
+install:
+    npm install
+
+# Run edit CLI - invoke Claude with tldraw context
+edit *ARGS:
+    EVAL_PORT={{EVAL_PORT}} bun run scripts/edit.ts {{ARGS}}
+
+# Build edit CLI to standalone binary
+build-edit:
+    bun build scripts/edit.ts --compile --outfile dist/edit
+
+# Show available URLs
+urls:
+    @echo "Vite:        http://localhost:{{VITE_PORT}}"
+    @echo "             https://{{VITE_NAME}}.localhost (via localhostess)"
+    @echo ""
+    @echo "Eval Server: http://localhost:{{EVAL_PORT}}"
+    @echo "             https://{{EVAL_NAME}}.localhost (via localhostess)"
+    @echo ""
+    @echo "Eval API:    POST http://localhost:{{EVAL_PORT}}/eval"
+    @echo "Health:      GET  http://localhost:{{EVAL_PORT}}/health"
