@@ -53,10 +53,11 @@ This enables the flow:
 
 The `generate.ts` CLI is a fully parallel image generation pipeline:
 
-1. **Creates grey placeholders immediately** at pre-calculated positions
-2. **Runs ALL generations in parallel** (not sequential)
-3. **Each job independently** saves to disk and replaces its placeholder when done
-4. **Auto-saves all images** to `/tmp/generate-{timestamp}/`
+1. **Positions below selection** by default (or viewport center if nothing selected)
+2. **Creates grey placeholders immediately** at pre-calculated positions
+3. **Runs ALL generations in parallel** (not sequential)
+4. **Each job independently** saves to disk and replaces its placeholder when done
+5. **Auto-saves all images** to `/tmp/generate-{timestamp}/`
 
 ### Basic Usage
 
@@ -193,8 +194,11 @@ executeAction({ _type: "align", shapeIds: ["a", "b", "c"], alignment: "left", ga
 2. **User selects references**: Cmd/Ctrl+click to multi-select
 3. **User invokes `/tldraw`**: "Generate screens based on these references"
 4. **Extract grounding images**: Export selected images to /tmp/
-5. **Generate with grounding**: `bun scripts/generate.ts "prompts..." -i /tmp/ref1.png -i /tmp/ref2.png`
-6. **Iterate**: User provides feedback, refine designs
+5. **Keep selection active**: Generated images will appear **below** the selection
+6. **Generate with grounding**: `bun scripts/generate.ts "prompts..." -i /tmp/ref1.png -i /tmp/ref2.png`
+7. **Iterate**: User provides feedback, refine designs
+
+**Positioning rule**: If shapes are selected, new images appear below them. This keeps generated content near its reference material.
 
 ## Assumptions
 

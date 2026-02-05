@@ -6,7 +6,8 @@ import { readFileSync, existsSync } from 'fs'
 import { extname } from 'path'
 import type { Resolution } from './dimensions'
 
-const GEMINI_MODEL = 'gemini-2.0-flash-exp-image-generation'
+// Use the Pro model for highest quality (same as Python nano-banana-pro)
+const GEMINI_MODEL = 'gemini-3-pro-image-preview'
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 
 interface GeminiPart {
@@ -25,7 +26,9 @@ interface GeminiRequest {
   contents: GeminiContent[]
   generationConfig: {
     responseModalities: string[]
-    imageDimension?: string
+    imageConfig?: {
+      imageSize: string
+    }
   }
 }
 
@@ -140,13 +143,14 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gene
   // Add the text prompt
   parts.push({ text: prompt })
 
-  // Build request body
-  // Note: Resolution/image size parameter not yet supported in REST API
-  // The SDK uses image_config.image_size but the REST equivalent is unclear
+  // Build request body with resolution support
   const requestBody: GeminiRequest = {
     contents: [{ parts }],
     generationConfig: {
       responseModalities: ['TEXT', 'IMAGE'],
+      imageConfig: {
+        imageSize: resolution,
+      },
     },
   }
 

@@ -59,6 +59,29 @@ export async function getViewportCenter(): Promise<{ x: number; y: number }> {
   return result.result
 }
 
+/**
+ * Get position below the current selection (with gap)
+ * Returns null if nothing is selected
+ */
+export async function getPositionBelowSelection(gap: number = 100): Promise<{ x: number; y: number } | null> {
+  const result = await evalCode(`
+    const selectedIds = editor.getSelectedShapeIds();
+    if (selectedIds.length === 0) return null;
+
+    const bounds = editor.getSelectionPageBounds();
+    if (!bounds) return null;
+
+    return {
+      x: bounds.x,
+      y: bounds.y + bounds.h + ${gap}
+    };
+  `)
+  if (!result.success || !result.result) {
+    return null
+  }
+  return result.result
+}
+
 export interface PlaceholderOptions {
   x: number
   y: number

@@ -22,6 +22,7 @@ import { generateImage } from './lib/gemini'
 import {
   checkHealth,
   getViewportCenter,
+  getPositionBelowSelection,
   createPlaceholder,
   markPlaceholderError,
   replacePlaceholder,
@@ -249,13 +250,23 @@ async function main() {
   const dimensions = getDimensions(args.resolution, args.aspectRatio)
   const { w, h } = dimensions
 
-  // Get starting position
+  // Get starting position: prefer below selection, fallback to viewport center
   let startX = args.x
   let startY = args.y
   if (startX === undefined || startY === undefined) {
-    const center = await getViewportCenter()
-    startX = startX ?? center.x
-    startY = startY ?? center.y
+    // Try to position below current selection
+    const belowSelection = await getPositionBelowSelection(100)
+    if (belowSelection) {
+      startX = startX ?? belowSelection.x
+      startY = startY ?? belowSelection.y
+      console.log('Positioning below selection')
+    } else {
+      // Fallback to viewport center
+      const center = await getViewportCenter()
+      startX = startX ?? center.x
+      startY = startY ?? center.y
+      console.log('Positioning at viewport center (no selection)')
+    }
   }
 
   console.log(`Resolution: ${args.resolution} (${w}x${h})`)
