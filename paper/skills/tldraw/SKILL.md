@@ -6,7 +6,7 @@ description: |
   (2) Generate visual layouts based on reference images and text prompts
   (3) Manipulate shapes, create diagrams, or build visual artifacts
   (4) Work with selected shapes as context for design tasks
-  (5) Generate images with nano-banana-pro and place them on canvas
+  (5) Generate images with Gemini and place them on canvas
   This skill operates the tldraw canvas via an eval API. Manually invoked only.
 ---
 
@@ -49,102 +49,103 @@ This enables the flow:
 3. `/tldraw` extracts selection as context
 4. You generate new designs informed by that context
 
-## Image Generation with nano-banana-pro
+## Image Generation with generate.ts
 
-Generate images and place them on canvas using the nano-banana-pro skill + upload CLI.
+The `generate.ts` CLI is a fully parallel image generation pipeline:
 
-### Workflow: Generate and Place Image
+1. **Creates grey placeholders immediately** at pre-calculated positions
+2. **Runs ALL generations in parallel** (not sequential)
+3. **Each job independently** saves to disk and replaces its placeholder when done
+4. **Auto-saves all images** to `/tmp/generate-{timestamp}/`
+
+### Basic Usage
 
 ```bash
 cd /Users/slee2/projects/Possibilities/paper
+source .env  # Load GEMINI_API_KEY
 
-# 1. Generate the image
-uv run skills/nano-banana-pro/scripts/generate_image.py \
-  --prompt "A modern login form UI with blue accents, clean minimalist design" \
-  --filename "/tmp/generated-ui.png" \
-  --resolution 2K
+# Single image generation
+bun scripts/generate.ts "A modern login form UI with blue accents, clean minimalist design"
 
-# 2. Place on canvas with upload CLI
-bun scripts/upload.ts /tmp/generated-ui.png
+# With resolution and aspect ratio
+bun scripts/generate.ts "Mobile app splash screen, dark mode" --resolution 2K --aspect-ratio 9:16
+
+# Square image (icons, avatars)
+bun scripts/generate.ts "App icon, friendly firefly character" --resolution 1K --aspect-ratio 1:1
 ```
 
-### Workflow: Edit Selection and Replace
+### Grounding Images for Style Consistency
 
-When user wants to transform selected images:
+Use `--input-image` (repeatable) to provide reference images that Gemini will use for visual grounding:
 
 ```bash
-# 1. Selection extracted via --selection flag contains image data
-# 2. Save reference image to disk if needed
-# 3. Edit with nano-banana-pro
-uv run skills/nano-banana-pro/scripts/generate_image.py \
-  --prompt "Transform this into a cartoon style illustration" \
-  --input-image "/tmp/reference.png" \
-  --filename "/tmp/edited-output.png" \
-  --resolution 2K
+# Single grounding image
+bun scripts/generate.ts "Another screen in the same style" \
+  --input-image /tmp/reference.png
 
-# 4. Place result on canvas
-bun scripts/upload.ts /tmp/edited-output.png
+# Multiple grounding images for better consistency
+bun scripts/generate.ts "New screen matching these designs" \
+  -i /tmp/screen1.png \
+  -i /tmp/screen2.png \
+  -i /tmp/screen3.png
 ```
 
-### Resolution Mapping
+### Batch Generation (Parallel)
 
-- **Thumbnails/icons**: `1K` (default)
-- **UI mockups**: `2K`
-- **High-fidelity designs**: `4K`
+Generate multiple images at once - all run in parallel:
 
-## Design Tasks
-
-### Creating UI Frames (Without Image Gen)
-
-When asked to create UI wireframes using shapes:
-1. Use rectangles as frames/containers
-2. Use text shapes for labels and content
-3. Use appropriate colors (light fills for backgrounds, darker for accents)
-4. Maintain consistent spacing (use `stack`, `align`, `distribute` actions)
-5. Place designs to the right of or below reference material
-
-### Batch Generation
-
-For multiple variations:
 ```bash
-cd /Users/slee2/projects/Possibilities/paper
+# 12 screens generated simultaneously
+bun scripts/generate.ts \
+  "Screen 1: Welcome" \
+  "Screen 2: Onboarding" \
+  "Screen 3: Dashboard" \
+  "Screen 4: Settings" \
+  --resolution 2K --aspect-ratio 9:16 --layout row --gap 50
 
-# Generate 3 variations
-for i in 1 2 3; do
-  uv run skills/nano-banana-pro/scripts/generate_image.py \
-    --prompt "Modern dashboard UI, variation $i, different color scheme" \
-    --filename "/tmp/dashboard-v$i.png" \
-    --resolution 2K
-done
-
-# Place them in a row on canvas (upload handles layout automatically)
-bun scripts/upload.ts /tmp/dashboard-v1.png /tmp/dashboard-v2.png /tmp/dashboard-v3.png --x 100 --y 100
-
-# Or vertical layout
-bun scripts/upload.ts /tmp/dashboard-v*.png --layout column --gap 100
+# With grounding for consistency across all
+bun scripts/generate.ts \
+  "Variation A" "Variation B" "Variation C" \
+  -i /tmp/style-reference.png \
+  --layout row --gap 40
 ```
 
-## Quick Reference
+The workflow:
+1. All placeholders appear immediately in a row/column
+2. All generations start simultaneously
+3. Each placeholder gets replaced as its generation completes
+4. Images are saved to `/tmp/generate-{timestamp}/01.png`, `02.png`, etc.
 
-### Shape Creation
-```javascript
-// Rectangle frame
-executeAction({ _type: "create", shape: { _type: "rectangle", shapeId: "frame1", x: 100, y: 100, w: 300, h: 200, color: "light-blue", fill: "solid" }})
+### Options
 
-// Text label
-executeAction({ _type: "create", shape: { _type: "text", shapeId: "label1", x: 250, y: 80, anchor: "bottom-center", text: "Header", color: "black" }})
-```
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-r, --resolution` | 1K, 2K, or 4K | 2K |
+| `-a, --aspect-ratio` | 1:1, 9:16, 16:9, 4:3, 3:4 | 9:16 |
+| `-i, --input-image` | Grounding image(s) for style consistency (repeatable) | - |
+| `-l, --layout` | row or column (for multiple) | row |
+| `-g, --gap` | Pixels between images | 40 |
+| `--x, --y` | Starting position | viewport center |
+| `--no-placeholder` | Skip placeholder | false |
+| `-o, --output-dir` | Custom save directory | /tmp/generate-{timestamp} |
 
-### Layout Actions
-```javascript
-// Stack vertically with gaps
-executeAction({ _type: "stack", shapeIds: ["a", "b", "c"], direction: "vertical", gap: 20 })
+### Resolution Guide
 
-// Align left edges
-executeAction({ _type: "align", shapeIds: ["a", "b", "c"], alignment: "left", gap: 0 })
-```
+- **1K**: Thumbnails, icons, quick iterations
+- **2K**: UI mockups, standard screens (recommended)
+- **4K**: High-fidelity designs, presentations
 
-### Image Placement (via upload CLI)
+### Aspect Ratio Guide
+
+- **9:16**: Mobile app screens (portrait)
+- **16:9**: Desktop/landscape layouts
+- **1:1**: Icons, avatars, square assets
+- **4:3/3:4**: Tablets, presentations
+
+## Manual Image Upload
+
+If you have existing images to place on canvas:
+
 ```bash
 # Single image at viewport center
 bun scripts/upload.ts /path/to/image.png
@@ -159,27 +160,44 @@ bun scripts/upload.ts image.png --x 100 --y 200
 bun scripts/upload.ts *.png --layout column --gap 100
 ```
 
-### Reading Selection
-```javascript
-// Get selected shape IDs
-const selectedIds = editor.getSelectedShapeIds()
+## Design Tasks (Shape Manipulation)
 
-// Get shape details
-const shapes = selectedIds.map(id => editor.getShape(id))
+### Creating UI Frames (Without Image Gen)
+
+When asked to create UI wireframes using shapes:
+1. Use rectangles as frames/containers
+2. Use text shapes for labels and content
+3. Use appropriate colors (light fills for backgrounds, darker for accents)
+4. Maintain consistent spacing (use `stack`, `align`, `distribute` actions)
+5. Place designs to the right of or below reference material
+
+### Quick Reference
+
+```javascript
+// Rectangle frame
+executeAction({ _type: "create", shape: { _type: "rectangle", shapeId: "frame1", x: 100, y: 100, w: 300, h: 200, color: "light-blue", fill: "solid" }})
+
+// Text label
+executeAction({ _type: "create", shape: { _type: "text", shapeId: "label1", x: 250, y: 80, anchor: "bottom-center", text: "Header", color: "black" }})
+
+// Stack vertically with gaps
+executeAction({ _type: "stack", shapeIds: ["a", "b", "c"], direction: "vertical", gap: 20 })
+
+// Align left edges
+executeAction({ _type: "align", shapeIds: ["a", "b", "c"], alignment: "left", gap: 0 })
 ```
 
 ## Typical Session Flow
 
 1. **User sets up references**: Places images, writes text prompts on canvas
 2. **User selects references**: Cmd/Ctrl+click to multi-select
-3. **User invokes `/tldraw`**: "Generate a UI based on these references"
-4. **Skill extracts selection**: Images and text become context
-5. **Generate with nano-banana-pro**: Create new images based on context
-6. **Place on canvas**: Position results near/below references
-7. **Iterate**: User provides feedback, refine designs
+3. **User invokes `/tldraw`**: "Generate screens based on these references"
+4. **Extract grounding images**: Export selected images to /tmp/
+5. **Generate with grounding**: `bun scripts/generate.ts "prompts..." -i /tmp/ref1.png -i /tmp/ref2.png`
+6. **Iterate**: User provides feedback, refine designs
 
 ## Assumptions
 
 - Eval server is running (`just dev` in paper/)
 - Browser is connected to eval server
-- `GEMINI_API_KEY` environment variable set (for nano-banana-pro)
+- `GEMINI_API_KEY` environment variable set (in paper/.env)
