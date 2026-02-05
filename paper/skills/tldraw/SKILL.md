@@ -51,36 +51,21 @@ This enables the flow:
 
 ## Image Generation with nano-banana-pro
 
-Generate images and place them on canvas using the nano-banana-pro skill.
+Generate images and place them on canvas using the nano-banana-pro skill + upload CLI.
 
 ### Workflow: Generate and Place Image
 
 ```bash
+cd /Users/slee2/projects/Possibilities/paper
+
 # 1. Generate the image
-uv run ~/.claude/skills/nano-banana-pro/scripts/generate_image.py \
+uv run skills/nano-banana-pro/scripts/generate_image.py \
   --prompt "A modern login form UI with blue accents, clean minimalist design" \
   --filename "/tmp/generated-ui.png" \
   --resolution 2K
 
-# 2. Place on canvas via eval API
-curl -s -X POST http://localhost:3031/eval \
-  -H "Content-Type: application/json" \
-  -d '{"code": "
-    (async () => {
-      const asset = await editor.uploadAssetFromUrl(\"file:///tmp/generated-ui.png\");
-      editor.createShape({
-        type: \"image\",
-        x: 500,
-        y: 100,
-        props: {
-          assetId: asset.id,
-          w: 400,
-          h: 300
-        }
-      });
-      return \"Image placed on canvas\";
-    })()
-  "}'
+# 2. Place on canvas with upload CLI
+bun scripts/upload.ts /tmp/generated-ui.png
 ```
 
 ### Workflow: Edit Selection and Replace
@@ -91,13 +76,14 @@ When user wants to transform selected images:
 # 1. Selection extracted via --selection flag contains image data
 # 2. Save reference image to disk if needed
 # 3. Edit with nano-banana-pro
-uv run ~/.claude/skills/nano-banana-pro/scripts/generate_image.py \
+uv run skills/nano-banana-pro/scripts/generate_image.py \
   --prompt "Transform this into a cartoon style illustration" \
   --input-image "/tmp/reference.png" \
   --filename "/tmp/edited-output.png" \
   --resolution 2K
 
-# 4. Place result on canvas next to original
+# 4. Place result on canvas
+bun scripts/upload.ts /tmp/edited-output.png
 ```
 
 ### Resolution Mapping
@@ -121,29 +107,21 @@ When asked to create UI wireframes using shapes:
 
 For multiple variations:
 ```bash
+cd /Users/slee2/projects/Possibilities/paper
+
 # Generate 3 variations
 for i in 1 2 3; do
-  uv run ~/.claude/skills/nano-banana-pro/scripts/generate_image.py \
+  uv run skills/nano-banana-pro/scripts/generate_image.py \
     --prompt "Modern dashboard UI, variation $i, different color scheme" \
     --filename "/tmp/dashboard-v$i.png" \
     --resolution 2K
 done
 
-# Place them in a row on canvas
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d '{
-  "code": "
-    (async () => {
-      const files = [\"/tmp/dashboard-v1.png\", \"/tmp/dashboard-v2.png\", \"/tmp/dashboard-v3.png\"];
-      let x = 100;
-      for (const file of files) {
-        const asset = await editor.uploadAssetFromUrl(\"file://\" + file);
-        editor.createShape({ type: \"image\", x, y: 100, props: { assetId: asset.id, w: 300, h: 200 } });
-        x += 350;
-      }
-      return \"Placed 3 variations\";
-    })()
-  "
-}'
+# Place them in a row on canvas (upload handles layout automatically)
+bun scripts/upload.ts /tmp/dashboard-v1.png /tmp/dashboard-v2.png /tmp/dashboard-v3.png --x 100 --y 100
+
+# Or vertical layout
+bun scripts/upload.ts /tmp/dashboard-v*.png --layout column --gap 100
 ```
 
 ## Quick Reference
@@ -166,17 +144,19 @@ executeAction({ _type: "stack", shapeIds: ["a", "b", "c"], direction: "vertical"
 executeAction({ _type: "align", shapeIds: ["a", "b", "c"], alignment: "left", gap: 0 })
 ```
 
-### Image Placement
-```javascript
-// Place image from file
-(async () => {
-  const asset = await editor.uploadAssetFromUrl("file:///path/to/image.png");
-  editor.createShape({
-    type: "image",
-    x: 100, y: 100,
-    props: { assetId: asset.id, w: 400, h: 300 }
-  });
-})()
+### Image Placement (via upload CLI)
+```bash
+# Single image at viewport center
+bun scripts/upload.ts /path/to/image.png
+
+# Multiple images in a row
+bun scripts/upload.ts img1.png img2.png img3.png
+
+# At specific position
+bun scripts/upload.ts image.png --x 100 --y 200
+
+# Column layout with custom gap
+bun scripts/upload.ts *.png --layout column --gap 100
 ```
 
 ### Reading Selection
