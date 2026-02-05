@@ -71,9 +71,16 @@ install:
 edit *ARGS:
     EVAL_PORT={{EVAL_PORT}} bun run scripts/edit.ts {{ARGS}}
 
-# Build edit CLI to standalone binary
+# Upload images to canvas
+upload *ARGS:
+    EVAL_PORT={{EVAL_PORT}} bun run scripts/upload.ts {{ARGS}}
+
+# Build CLI tools to standalone binaries
 build-edit:
     bun build scripts/edit.ts --compile --outfile dist/edit
+
+build-upload:
+    bun build scripts/upload.ts --compile --outfile dist/upload
 
 # Show available URLs
 urls:
