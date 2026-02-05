@@ -4,9 +4,8 @@
  * generate CLI - Generate images with Gemini and place on tldraw canvas
  *
  * Features:
- * - Creates placeholders immediately at correct positions
- * - Runs ALL generations in parallel (not sequential)
- * - Each job independently replaces its placeholder when done
+ * - Runs ALL generations in parallel
+ * - Places images at correct display size (scaled from actual image dimensions)
  * - Auto-saves all images to disk
  *
  * Usage:
@@ -16,16 +15,13 @@
 
 import { writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
-import { getDimensions, parseResolution, parseAspectRatio } from './lib/dimensions'
+import { getDimensions, parseResolution, parseAspectRatio, DEFAULT_DISPLAY_WIDTH } from './lib/dimensions'
 import type { Resolution, AspectRatio } from './lib/dimensions'
 import { generateImage } from './lib/gemini'
 import {
   checkHealth,
   getViewportCenter,
   getPositionBelowSelection,
-  createPlaceholder,
-  markPlaceholderError,
-  replacePlaceholder,
   uploadImage,
   selectShapes,
 } from './lib/canvas'
@@ -38,9 +34,9 @@ interface CliArgs {
   y?: number
   layout: 'row' | 'column'
   gap: number
-  noPlaceholder: boolean
   inputImages: string[]
   outputDir: string
+  displayWidth: number
   help: boolean
 }
 
@@ -57,9 +53,9 @@ function parseArgs(): CliArgs {
     aspectRatio: '9:16',
     layout: 'row',
     gap: 40,
-    noPlaceholder: false,
     inputImages: [],
     outputDir: defaultOutputDir,
+    displayWidth: DEFAULT_DISPLAY_WIDTH,
     help: false,
   }
 
@@ -88,14 +84,14 @@ function parseArgs(): CliArgs {
     } else if (arg === '--gap' || arg === '-g') {
       result.gap = parseInt(args[i + 1], 10)
       i += 2
-    } else if (arg === '--no-placeholder') {
-      result.noPlaceholder = true
-      i++
     } else if (arg === '--input-image' || arg === '-i') {
       result.inputImages.push(args[i + 1])
       i += 2
     } else if (arg === '--output-dir' || arg === '-o') {
       result.outputDir = args[i + 1]
+      i += 2
+    } else if (arg === '--display-width' || arg === '-w') {
+      result.displayWidth = parseInt(args[i + 1], 10)
       i += 2
     } else if (!arg.startsWith('-')) {
       result.prompts.push(arg)
@@ -122,13 +118,13 @@ ARGUMENTS:
 OPTIONS:
   -h, --help              Show this help message
   -r, --resolution        1K | 2K | 4K (default: 2K)
-  -a, --aspect-ratio      1:1 | 9:16 | 16:9 | 4:3 | 3:4 (default: 9:16)
+  -a, --aspect-ratio      1:1 | 9:16 | 16:9 | 4:3 | 3:4 | 2:3 | 3:2 | 4:5 | 5:4 | 21:9 (default: 9:16)
   -i, --input-image       Grounding image(s) for style consistency (repeatable)
-  --x <N>                 Starting X position (default: viewport center)
-  --y <N>                 Starting Y position (default: viewport center)
+  --x <N>                 Starting X position (default: below selection or viewport center)
+  --y <N>                 Starting Y position (default: below selection or viewport center)
   -l, --layout <TYPE>     Layout for multiple: row | column (default: row)
   -g, --gap <N>           Gap between images in pixels (default: 40)
-  --no-placeholder        Skip placeholder, just generate and place
+  -w, --display-width <N> Canvas display width in pixels (default: 400)
   -o, --output-dir <DIR>  Save images to this directory (default: /tmp/generate-{timestamp})
 
 EXAMPLES:
@@ -146,22 +142,18 @@ ENVIRONMENT:
 interface Job {
   prompt: string
   index: number
-  placeholderId: string | null
   x: number
   y: number
-  w: number
-  h: number
 }
 
 /**
- * Process a single job: generate image, save to disk, replace placeholder
- * This runs independently and can be parallelized
+ * Process a single job: generate image, save to disk, upload to canvas
  */
 async function processJob(
   job: Job,
   args: CliArgs,
   totalJobs: number
-): Promise<{ success: boolean; shapeId: string | null; error?: string }> {
+): Promise<{ success: boolean; shapeId: string | null; displayWidth: number; displayHeight: number; error?: string }> {
   const prefix = `[${job.index + 1}/${totalJobs}]`
   const shortPrompt = job.prompt.length > 50 ? job.prompt.slice(0, 47) + '...' : job.prompt
 
@@ -171,15 +163,13 @@ async function processJob(
   const result = await generateImage({
     prompt: job.prompt,
     resolution: args.resolution,
+    aspectRatio: args.aspectRatio,
     inputImage: args.inputImages.length > 0 ? args.inputImages : undefined,
   })
 
   if (!result.success || !result.imageData) {
     console.error(`${prefix} Error: ${result.error}`)
-    if (job.placeholderId) {
-      await markPlaceholderError(job.placeholderId)
-    }
-    return { success: false, shapeId: null, error: result.error }
+    return { success: false, shapeId: null, displayWidth: 0, displayHeight: 0, error: result.error }
   }
 
   // Save to disk
@@ -188,30 +178,21 @@ async function processJob(
   writeFileSync(filepath, result.imageData)
   console.log(`${prefix} Saved: ${filepath}`)
 
-  // Replace placeholder or upload directly
-  let shapeId: string | null = null
-  if (job.placeholderId) {
-    shapeId = await replacePlaceholder(
-      job.placeholderId,
-      result.imageData,
-      result.mimeType || 'image/png'
-    )
-  } else {
-    shapeId = await uploadImage({
-      imageData: result.imageData,
-      mimeType: result.mimeType || 'image/png',
-      x: job.x,
-      y: job.y,
-      targetWidth: job.w,
-      targetHeight: job.h,
-    })
-  }
+  // Upload to canvas (scaled to display width, preserving aspect ratio)
+  const shapeId = await uploadImage({
+    imageData: result.imageData,
+    mimeType: result.mimeType || 'image/png',
+    x: job.x,
+    y: job.y,
+    targetWidth: args.displayWidth,
+  })
 
   if (shapeId) {
     console.log(`${prefix} Placed: ${shapeId}`)
   }
 
-  return { success: true, shapeId }
+  // Return the actual display dimensions (we don't know them here, but we'll estimate)
+  return { success: true, shapeId, displayWidth: args.displayWidth, displayHeight: 0 }
 }
 
 async function main() {
@@ -246,22 +227,16 @@ async function main() {
   mkdirSync(args.outputDir, { recursive: true })
   console.log(`Output dir: ${args.outputDir}\n`)
 
-  // Get dimensions
-  const dimensions = getDimensions(args.resolution, args.aspectRatio)
-  const { w, h } = dimensions
-
   // Get starting position: prefer below selection, fallback to viewport center
   let startX = args.x
   let startY = args.y
   if (startX === undefined || startY === undefined) {
-    // Try to position below current selection
     const belowSelection = await getPositionBelowSelection(100)
     if (belowSelection) {
       startX = startX ?? belowSelection.x
       startY = startY ?? belowSelection.y
       console.log('Positioning below selection')
     } else {
-      // Fallback to viewport center
       const center = await getViewportCenter()
       startX = startX ?? center.x
       startY = startY ?? center.y
@@ -269,11 +244,15 @@ async function main() {
     }
   }
 
-  console.log(`Resolution: ${args.resolution} (${w}x${h})`)
+  const genDimensions = getDimensions(args.resolution, args.aspectRatio)
+  console.log(`Resolution: ${args.resolution} (${genDimensions.w}x${genDimensions.h})`)
+  console.log(`Display width: ${args.displayWidth}px`)
   console.log(`Starting at: (${Math.round(startX)}, ${Math.round(startY)})`)
   console.log(`Generating ${args.prompts.length} image(s) in parallel...\n`)
 
-  // Create jobs with pre-calculated positions
+  // Create jobs - we estimate positions based on display width
+  // Actual heights will vary based on Gemini's output aspect ratio
+  const estimatedHeight = Math.round(args.displayWidth * 1.5)  // Rough estimate for layout
   const jobs: Job[] = []
   let currentX = startX
   let currentY = startY
@@ -282,40 +261,17 @@ async function main() {
     jobs.push({
       prompt: args.prompts[i],
       index: i,
-      placeholderId: null,
       x: currentX,
       y: currentY,
-      w,
-      h,
     })
     if (args.layout === 'row') {
-      currentX += w + args.gap
+      currentX += args.displayWidth + args.gap
     } else {
-      currentY += h + args.gap
+      currentY += estimatedHeight + args.gap
     }
   }
 
-  // Phase 1: Create ALL placeholders upfront (fast, sequential is fine)
-  if (!args.noPlaceholder) {
-    console.log('Creating placeholders...')
-    const placeholderPromises = jobs.map(async (job) => {
-      const placeholderId = await createPlaceholder({
-        x: job.x,
-        y: job.y,
-        w: job.w,
-        h: job.h,
-        prompt: job.prompt,
-        index: jobs.length > 1 ? job.index : undefined,
-      })
-      job.placeholderId = placeholderId
-      console.log(`  [${job.index + 1}/${jobs.length}] Placeholder at (${Math.round(job.x)}, ${Math.round(job.y)})`)
-      return placeholderId
-    })
-    await Promise.all(placeholderPromises)
-    console.log('')
-  }
-
-  // Phase 2: Run ALL generations in PARALLEL
+  // Run ALL generations in PARALLEL
   console.log('Starting parallel generation...\n')
   const results = await Promise.all(
     jobs.map(job => processJob(job, args, jobs.length))

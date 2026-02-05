@@ -27,7 +27,8 @@ interface GeminiRequest {
   generationConfig: {
     responseModalities: string[]
     imageConfig?: {
-      imageSize: string
+      imageSize?: string
+      aspectRatio?: string
     }
   }
 }
@@ -56,6 +57,7 @@ interface GeminiResponse {
 export interface GenerateImageOptions {
   prompt: string
   resolution?: Resolution
+  aspectRatio?: string  // e.g., "9:16", "16:9", "1:1", "4:3", "3:4"
   inputImage?: string | string[] // Path(s) to input image(s) for grounding
   apiKey?: string
 }
@@ -115,7 +117,7 @@ function getApiKey(provided?: string): string {
  * Generate an image using Gemini API
  */
 export async function generateImage(options: GenerateImageOptions): Promise<GenerateImageResult> {
-  const { prompt, resolution = '2K', inputImage, apiKey: providedKey } = options
+  const { prompt, resolution = '2K', aspectRatio = '9:16', inputImage, apiKey: providedKey } = options
 
   let apiKey: string
   try {
@@ -143,13 +145,14 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gene
   // Add the text prompt
   parts.push({ text: prompt })
 
-  // Build request body with resolution support
+  // Build request body with resolution and aspect ratio
   const requestBody: GeminiRequest = {
     contents: [{ parts }],
     generationConfig: {
       responseModalities: ['TEXT', 'IMAGE'],
       imageConfig: {
         imageSize: resolution,
+        aspectRatio: aspectRatio,
       },
     },
   }

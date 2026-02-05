@@ -1,6 +1,5 @@
 /**
  * Canvas operations for tldraw via eval server
- * Based on the working upload.ts implementation
  */
 
 const EVAL_PORT = process.env.EVAL_PORT || '3031'
@@ -82,76 +81,6 @@ export async function getPositionBelowSelection(gap: number = 100): Promise<{ x:
   return result.result
 }
 
-export interface PlaceholderOptions {
-  x: number
-  y: number
-  w: number
-  h: number
-  prompt: string
-  index?: number
-}
-
-/**
- * Create a placeholder rectangle on the canvas
- */
-export async function createPlaceholder(options: PlaceholderOptions): Promise<string | null> {
-  const { x, y, w, h, prompt, index } = options
-  const displayPrompt = prompt.length > 40 ? prompt.slice(0, 37) + '...' : prompt
-  const shapeId = `placeholder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-
-  const code = `
-    const shapeId = "shape:${shapeId}";
-
-    editor.createShape({
-      id: shapeId,
-      type: "geo",
-      x: ${x},
-      y: ${y},
-      props: {
-        w: ${w},
-        h: ${h},
-        geo: "rectangle",
-        color: "grey",
-        fill: "semi",
-        dash: "dashed",
-      }
-    });
-
-    return shapeId;
-  `
-
-  const result = await evalCode(code)
-  if (!result.success) {
-    console.error('Failed to create placeholder:', result.error)
-    return null
-  }
-  return result.result
-}
-
-/**
- * Update placeholder to show error state
- */
-export async function markPlaceholderError(shapeId: string): Promise<boolean> {
-  const code = `
-    editor.updateShape({
-      id: "${shapeId}",
-      props: { color: "red" }
-    });
-    return true;
-  `
-  const result = await evalCode(code)
-  return result.success
-}
-
-/**
- * Delete a shape by ID
- */
-export async function deleteShape(shapeId: string): Promise<boolean> {
-  const code = `editor.deleteShape("${shapeId}"); return true;`
-  const result = await evalCode(code)
-  return result.success
-}
-
 export interface UploadImageOptions {
   imageData: Buffer
   mimeType: string
@@ -162,7 +91,9 @@ export interface UploadImageOptions {
 }
 
 /**
- * Upload an image to the canvas (same approach as upload.ts)
+ * Upload an image to the canvas.
+ * If targetWidth is provided, scales image to that width while preserving aspect ratio.
+ * If targetHeight is provided (and no targetWidth), scales to that height.
  */
 export async function uploadImage(options: UploadImageOptions): Promise<string | null> {
   const { imageData, mimeType, x, y, targetWidth, targetHeight } = options
@@ -188,10 +119,15 @@ export async function uploadImage(options: UploadImageOptions): Promise<string |
     let w = img.naturalWidth;
     let h = img.naturalHeight;
 
-    // Scale to target dimensions if provided
-    if (targetWidth && targetHeight) {
+    // Scale to target width while preserving aspect ratio
+    if (targetWidth) {
+      const scale = targetWidth / w;
       w = targetWidth;
+      h = Math.round(h * scale);
+    } else if (targetHeight) {
+      const scale = targetHeight / h;
       h = targetHeight;
+      w = Math.round(w * scale);
     }
 
     // Create asset
@@ -234,44 +170,6 @@ export async function uploadImage(options: UploadImageOptions): Promise<string |
     return null
   }
   return result.result.shapeId
-}
-
-/**
- * Replace a placeholder with an uploaded image
- */
-export async function replacePlaceholder(
-  placeholderId: string,
-  imageData: Buffer,
-  mimeType: string
-): Promise<string | null> {
-  // Get placeholder position
-  const posResult = await evalCode(`
-    const shape = editor.getShape("${placeholderId}");
-    if (!shape) return null;
-    return { x: shape.x, y: shape.y, w: shape.props.w, h: shape.props.h };
-  `)
-
-  if (!posResult.success || !posResult.result) {
-    return null
-  }
-
-  const { x, y, w, h } = posResult.result
-
-  // Upload image at placeholder position
-  const imageShapeId = await uploadImage({
-    imageData,
-    mimeType,
-    x,
-    y,
-    targetWidth: w,
-    targetHeight: h,
-  })
-
-  if (imageShapeId) {
-    await deleteShape(placeholderId)
-  }
-
-  return imageShapeId
 }
 
 /**

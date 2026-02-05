@@ -3,12 +3,20 @@
  */
 
 export type Resolution = '1K' | '2K' | '4K'
-export type AspectRatio = '1:1' | '9:16' | '16:9' | '4:3' | '3:4'
+// Supported by Gemini API: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
+export type AspectRatio = '1:1' | '9:16' | '16:9' | '4:3' | '3:4' | '2:3' | '3:2' | '4:5' | '5:4' | '21:9'
 
 interface Dimensions {
   w: number
   h: number
 }
+
+/**
+ * Default display width for canvas placement (in pixels).
+ * Images are generated at full resolution but displayed at this width
+ * (height calculated to maintain aspect ratio).
+ */
+export const DEFAULT_DISPLAY_WIDTH = 400
 
 /**
  * Dimension mappings for each resolution and aspect ratio combination.
@@ -63,7 +71,7 @@ export function getAspectRatios(): AspectRatio[] {
  * Parse aspect ratio string, with fallback
  */
 export function parseAspectRatio(str: string): AspectRatio {
-  const valid: AspectRatio[] = ['1:1', '9:16', '16:9', '4:3', '3:4']
+  const valid: AspectRatio[] = ['1:1', '9:16', '16:9', '4:3', '3:4', '2:3', '3:2', '4:5', '5:4', '21:9']
   if (valid.includes(str as AspectRatio)) {
     return str as AspectRatio
   }
@@ -79,4 +87,14 @@ export function parseResolution(str: string): Resolution {
     return str as Resolution
   }
   return '2K' // Default
+}
+
+/**
+ * Get display dimensions for canvas placement.
+ * Scales the image to fit within displayWidth while maintaining aspect ratio.
+ */
+export function getDisplayDimensions(aspectRatio: AspectRatio, displayWidth: number = DEFAULT_DISPLAY_WIDTH): Dimensions {
+  const [wRatio, hRatio] = aspectRatio.split(':').map(Number)
+  const displayHeight = Math.round(displayWidth * (hRatio / wRatio))
+  return { w: displayWidth, h: displayHeight }
 }
