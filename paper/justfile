@@ -9,15 +9,13 @@ EVAL_PORT := "3031"
 
 # localhostess names for HTTPS
 VITE_NAME := "paper"
-EVAL_NAME := "paper-eval"
 
 # Run all dev servers concurrently
 dev:
     npx concurrently \
-        --names "vite,eval" \
         --prefix-colors "cyan,magenta" \
         "NAME={{VITE_NAME}} npx vite --port {{VITE_PORT}}" \
-        "NAME={{EVAL_NAME}} EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts"
+        "EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts"
 
 # Run only the vite dev server
 vite:
@@ -25,7 +23,7 @@ vite:
 
 # Run only the eval server
 eval:
-    NAME={{EVAL_NAME}} EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts
+    EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts
 
 # Build for production
 build:
@@ -81,14 +79,3 @@ build-edit:
 
 build-upload:
     bun build scripts/upload.ts --compile --outfile dist/upload
-
-# Show available URLs
-urls:
-    @echo "Vite:        http://localhost:{{VITE_PORT}}"
-    @echo "             https://{{VITE_NAME}}.localhost (via localhostess)"
-    @echo ""
-    @echo "Eval Server: http://localhost:{{EVAL_PORT}}"
-    @echo "             https://{{EVAL_NAME}}.localhost (via localhostess)"
-    @echo ""
-    @echo "Eval API:    POST http://localhost:{{EVAL_PORT}}/eval"
-    @echo "Health:      GET  http://localhost:{{EVAL_PORT}}/health"
