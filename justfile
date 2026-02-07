@@ -9,6 +9,8 @@ EVAL_PORT := "3031"
 
 # localhostess names for HTTPS
 VITE_NAME := "paper"
+AGENT_UI_NAME := "agent-ui"
+AGENT_UI_PORT := "3032"
 
 # Run all dev servers concurrently
 dev:
@@ -87,3 +89,10 @@ build-edit:
 
 build-upload:
     cd paper && bun build scripts/upload.ts --compile --outfile dist/upload
+
+# Run agent-ui dev server
+agent-ui:
+    cd agent-ui && NAME={{AGENT_UI_NAME}} bun run bridge.ts
+
+# OpenSprite entrypoint
+start: dev

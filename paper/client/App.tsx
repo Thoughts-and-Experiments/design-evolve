@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
 	DefaultSizeStyle,
-	ErrorBoundary,
 	TLComponents,
 	Tldraw,
 	TldrawOverlays,
@@ -13,8 +12,6 @@ import {
 	TldrawAgentAppContextProvider,
 	TldrawAgentAppProvider,
 } from './agent/TldrawAgentAppProvider'
-import { ChatPanel } from './components/ChatPanel'
-import { ChatPanelFallback } from './components/ChatPanelFallback'
 import { CustomHelperButtons } from './components/CustomHelperButtons'
 import { AgentViewportBoundsHighlights } from './components/highlights/AgentViewportBoundsHighlights'
 import { AllContextHighlights } from './components/highlights/ContextHighlights'
@@ -96,13 +93,11 @@ function App() {
 						<TldrawAgentAppProvider onMount={setApp} onUnmount={handleUnmount} />
 					</Tldraw>
 				</div>
-				<ErrorBoundary fallback={ChatPanelFallback}>
-					{app && (
-						<TldrawAgentAppContextProvider app={app}>
-							<ChatPanel />
-						</TldrawAgentAppContextProvider>
-					)}
-				</ErrorBoundary>
+				<iframe
+					src={window.location.origin.replace('paper', 'agent-ui') + '/'}
+					className="agent-sidebar"
+					title="pi agent"
+				/>
 			</div>
 		</TldrawUiToastsProvider>
 	)

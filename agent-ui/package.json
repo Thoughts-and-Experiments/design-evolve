@@ -1,0 +1,9 @@
+{
+	"name": "agent-ui",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun run bridge.ts"
+	}
+}

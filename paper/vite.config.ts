@@ -12,5 +12,8 @@ export default defineConfig(() => {
 			cloudflare(),
 			react(),
 		],
+		server: {
+			allowedHosts: true,
+		},
 	}
 })
