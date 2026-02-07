@@ -164,11 +164,14 @@ Bun.serve({
 		}
 
 		if (url.pathname === "/api/auth/callback" && req.method === "POST") {
+			console.log("[auth] callback received");
 			if (!pendingPKCE) {
+				console.log("[auth] no pending PKCE");
 				return Response.json({ error: "No pending login" }, { status: 400 });
 			}
 
 			const { code: authCode } = (await req.json()) as { code: string };
+			console.log("[auth] code received, exchanging token...");
 			const splits = authCode.split("#");
 			const code = splits[0];
 			const state = splits[1];
@@ -189,6 +192,7 @@ Bun.serve({
 
 				if (!tokenRes.ok) {
 					const err = await tokenRes.text();
+					console.log("[auth] token exchange failed:", err);
 					return Response.json({ error: `Token exchange failed: ${err}` }, { status: 400 });
 				}
 
@@ -206,13 +210,20 @@ Bun.serve({
 
 				saveAnthropicAuth(credentials);
 				pendingPKCE = null;
-				console.log("Anthropic OAuth login successful");
+				console.log("[auth] OAuth login successful, saved credentials");
 
-				// Start the agent now that we have credentials
-				await startAgent();
+				// Start the agent in background — don't block the HTTP response
+				// (the proxy may timeout long requests)
+				console.log("[auth] responding to client, starting agent in background...");
+				startAgent().then(() => {
+					console.log("[auth] agent started in background");
+				}).catch((err) => {
+					console.error("[auth] agent start failed:", err);
+				});
 
 				return Response.json({ success: true });
 			} catch (err: any) {
+				console.error("[auth] callback error:", err);
 				return Response.json({ error: err.message }, { status: 500 });
 			}
 		}
@@ -224,7 +235,7 @@ Bun.serve({
 		if (url.pathname === "/pi-chat.js") {
 			const built = await Bun.build({ entrypoints: [jsPath], target: "browser" });
 			const js = await built.outputs[0].text();
-			return new Response(js, { headers: { "content-type": "application/javascript" } });
+			return new Response(js, { headers: { "content-type": "application/javascript", "cache-control": "no-cache" } });
 		}
 
 		return new Response("Not found", { status: 404 });

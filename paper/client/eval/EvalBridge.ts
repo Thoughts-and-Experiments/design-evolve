@@ -35,8 +35,11 @@ class EvalBridge {
   /**
    * Connect to the eval WebSocket server
    */
-  connect(port: number = 3031) {
-    const url = `ws://localhost:${port}/eval`
+  connect() {
+    const origin = window.location.origin.replace('paper', 'paper-eval')
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const host = new URL(origin).host
+    const url = `${proto}//${host}/eval`
     console.log(`[EvalBridge] Connecting to ${url}...`)
 
     this.ws = new WebSocket(url)
@@ -59,7 +62,7 @@ class EvalBridge {
 
     this.ws.onclose = () => {
       console.log('[EvalBridge] Disconnected from eval server')
-      this.attemptReconnect(port)
+      this.attemptReconnect()
     }
 
     this.ws.onerror = (error) => {
@@ -67,11 +70,11 @@ class EvalBridge {
     }
   }
 
-  private attemptReconnect(port: number) {
+  private attemptReconnect() {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
       console.log(`[EvalBridge] Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`)
-      setTimeout(() => this.connect(port), this.reconnectDelay)
+      setTimeout(() => this.connect(), this.reconnectDelay)
     }
   }
 

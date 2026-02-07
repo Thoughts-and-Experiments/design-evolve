@@ -84,6 +84,7 @@ loginCodeInput.addEventListener("keydown", (e) => {
 async function submitLoginCode() {
 	const code = loginCodeInput.value.trim();
 	if (!code) return;
+	console.log("[login] submitting code...");
 	loginSubmitBtn.disabled = true;
 	loginSpinner.classList.add("visible");
 	loginError.classList.remove("visible");
@@ -94,10 +95,14 @@ async function submitLoginCode() {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ code }),
 		});
+		console.log("[login] response status:", res.status);
 		const data = await res.json();
+		console.log("[login] response data:", data);
 		if (!res.ok) throw new Error(data.error);
+		console.log("[login] success, showing chat...");
 		showChat();
 	} catch (err: any) {
+		console.error("[login] error:", err);
 		loginError.textContent = err.message;
 		loginError.classList.add("visible");
 		loginSubmitBtn.disabled = false;
@@ -112,13 +117,20 @@ let ws: WebSocket;
 function connect() {
 	const base = location.pathname.replace(/\/$/, "");
 	const proto = location.protocol === "https:" ? "wss:" : "ws:";
-	ws = new WebSocket(`${proto}//${location.host}${base}/ws`);
+	const wsUrl = `${proto}//${location.host}${base}/ws`;
+	console.log("[ws] connecting to", wsUrl);
+	ws = new WebSocket(wsUrl);
 	ws.onopen = () => {
+		console.log("[ws] connected");
 		modelLabel.textContent = "connected";
 		sendBtn.disabled = false;
 		ws.send(JSON.stringify({ type: "get_state" }));
 	};
-	ws.onclose = () => {
+	ws.onerror = (e) => {
+		console.error("[ws] error:", e);
+	};
+	ws.onclose = (e) => {
+		console.log("[ws] closed, code:", e.code, "reason:", e.reason);
 		modelLabel.textContent = "reconnecting...";
 		sendBtn.disabled = true;
 		setTimeout(connect, 2000);

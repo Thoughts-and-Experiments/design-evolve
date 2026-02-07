@@ -9,6 +9,7 @@ EVAL_PORT := "3031"
 
 # localhostess names for HTTPS
 VITE_NAME := "paper"
+EVAL_NAME := "paper-eval"
 AGENT_UI_NAME := "agent-ui"
 AGENT_UI_PORT := "3032"
 
@@ -17,7 +18,7 @@ dev:
     cd paper && npx concurrently \
         --prefix-colors "cyan,magenta" \
         "NAME={{VITE_NAME}} npx vite --port {{VITE_PORT}}" \
-        "EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts"
+        "NAME={{EVAL_NAME}} EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts"
 
 # Run only the vite dev server
 vite:
@@ -106,5 +107,5 @@ start:
     npx concurrently \
         --prefix-colors "cyan,magenta,green" \
         "cd paper && NAME={{VITE_NAME}} npx vite --host 0.0.0.0 --port {{VITE_PORT}}" \
-        "cd paper && EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts" \
-        "cd agent-ui && NAME={{AGENT_UI_NAME}} bun run bridge.ts"
+        "cd paper && NAME={{EVAL_NAME}} EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts" \
+        "cd agent-ui && NAME={{AGENT_UI_NAME}} bun --watch run bridge.ts"
