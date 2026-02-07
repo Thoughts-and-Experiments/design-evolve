@@ -12,30 +12,30 @@ VITE_NAME := "paper"
 
 # Run all dev servers concurrently
 dev:
-    npx concurrently \
+    cd paper && npx concurrently \
         --prefix-colors "cyan,magenta" \
         "NAME={{VITE_NAME}} npx vite --port {{VITE_PORT}}" \
         "EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts"
 
 # Run only the vite dev server
 vite:
-    NAME={{VITE_NAME}} npx vite --port {{VITE_PORT}}
+    cd paper && NAME={{VITE_NAME}} npx vite --port {{VITE_PORT}}
 
 # Run only the eval server
 eval:
-    EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts
+    cd paper && EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts
 
 # Build for production
 build:
-    npx vite build
+    cd paper && npx vite build
 
 # Preview production build
 preview:
-    npx vite preview
+    cd paper && npx vite preview
 
 # Run the SDK example
 example:
-    EVAL_PORT={{EVAL_PORT}} npx tsx sdk/example.ts
+    cd paper && EVAL_PORT={{EVAL_PORT}} npx tsx sdk/example.ts
 
 # Check health of eval server
 health:
@@ -63,19 +63,27 @@ clean:
 
 # Install dependencies
 install:
-    npm install
+    cd paper && npm install
 
 # Run edit CLI - invoke Claude with tldraw context
 edit *ARGS:
-    EVAL_PORT={{EVAL_PORT}} bun run scripts/edit.ts {{ARGS}}
+    cd paper && EVAL_PORT={{EVAL_PORT}} bun run scripts/edit.ts {{ARGS}}
 
 # Upload images to canvas
 upload *ARGS:
-    EVAL_PORT={{EVAL_PORT}} bun run scripts/upload.ts {{ARGS}}
+    cd paper && EVAL_PORT={{EVAL_PORT}} bun run scripts/upload.ts {{ARGS}}
+
+# Generate images and place on canvas
+generate *ARGS:
+    cd paper && source .env && bun run scripts/generate.ts {{ARGS}}
+
+# Export selected images from canvas
+export-selected *ARGS:
+    cd paper && bun run scripts/export-selected-images.ts {{ARGS}}
 
 # Build CLI tools to standalone binaries
 build-edit:
-    bun build scripts/edit.ts --compile --outfile dist/edit
+    cd paper && bun build scripts/edit.ts --compile --outfile dist/edit
 
 build-upload:
-    bun build scripts/upload.ts --compile --outfile dist/upload
+    cd paper && bun build scripts/upload.ts --compile --outfile dist/upload
