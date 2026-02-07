@@ -95,4 +95,16 @@ agent-ui:
     cd agent-ui && NAME={{AGENT_UI_NAME}} bun run bridge.ts
 
 # OpenSprite entrypoint
-start: dev
+setup: clone-deps install
+
+# Clone and build external dependencies
+clone-deps:
+    mkdir -p downloads
+    [ -d downloads/pi-mono ] || git clone https://github.com/badlogic/pi-mono downloads/pi-mono
+    [ -f downloads/pi-mono/packages/coding-agent/dist/cli.js ] || (cd downloads/pi-mono && npm install && npm run build)
+start:
+    npx concurrently \
+        --prefix-colors "cyan,magenta,green" \
+        "cd paper && NAME={{VITE_NAME}} npx vite --host 0.0.0.0 --port {{VITE_PORT}}" \
+        "cd paper && EVAL_PORT={{EVAL_PORT}} npx tsx eval-server.ts" \
+        "cd agent-ui && NAME={{AGENT_UI_NAME}} bun run bridge.ts"

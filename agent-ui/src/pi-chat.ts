@@ -111,7 +111,8 @@ let ws: WebSocket;
 
 function connect() {
 	const base = location.pathname.replace(/\/$/, "");
-	ws = new WebSocket(`ws://${location.host}${base}/ws`);
+	const proto = location.protocol === "https:" ? "wss:" : "ws:";
+	ws = new WebSocket(`${proto}//${location.host}${base}/ws`);
 	ws.onopen = () => {
 		modelLabel.textContent = "connected";
 		sendBtn.disabled = false;
