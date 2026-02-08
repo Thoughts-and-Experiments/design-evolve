@@ -17,18 +17,41 @@ You are running an iterative design evolution loop on a tldraw canvas. The user 
 ## Prerequisites
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper
-source .env  # GEMINI_API_KEY
-
-# Verify canvas connection
-curl -s http://localhost:3031/health | jq .
+cd /Users/cameronfranz/Downloads/Possibilities/paper && source .env && python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py health
 ```
 
 **Assumptions:**
 - Eval server running at `http://localhost:3031`
 - Browser connected with tldraw open
 - `GEMINI_API_KEY` set in `.env`
-- Working directory for generate.ts: `/Users/cameronfranz/Downloads/Possibilities/paper`
+- Working directory: `/Users/cameronfranz/Downloads/Possibilities/paper`
+
+## Python eval helper
+
+**All canvas operations use the bundled `eval_helper.py`** instead of raw curl commands. This reduces the number of Bash calls (each needs user approval) and avoids shell escaping issues with curl/JSON.
+
+Set this alias at the start of every Bash call for brevity:
+```bash
+EH="python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py"
+```
+
+Key commands:
+```
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py health                              # Check connection
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py clear                               # Delete all shapes
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py zoom-to-fit                         # Zoom to fit
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py get-images                          # List all images
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py get-latest                          # Latest image per row
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-images <dir> [--display-width 400]  # Place PNGs from dir
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py create-frames [--prefix "iter1-"] [--iter-label " — Iter 1"]
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py detect-annotations                  # Find user annotations
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py screenshot <frame_id> <output.png>  # Screenshot a frame region
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean <image_id> <output.png>  # Export clean original
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved <img.png> <orig_shape_id> <iter> <candidate_num>
+python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py eval "editor.zoomToFit(); return 'ok'"  # Run arbitrary JS
+```
+
+**Combine multiple commands in a single Bash call** using `&&` or `;` to minimize approvals.
 
 ---
 
@@ -44,24 +67,13 @@ Track the current iteration number starting at 0 (seed). Increment on each EVOLV
 
 ## Step 0: CANVAS SETUP
 
-Clear the current page for a fresh start. **Do NOT create new pages** — tldraw's localStorage persistence fights against page creation/switching via eval, causing shapes to appear on wrong pages and page IDs to become inconsistent.
+Clear the current page for a fresh start. **Do NOT create new pages** — tldraw's localStorage persistence fights against page creation/switching via eval.
 
-**CRITICAL: Do NOT use `editor.store.mergeRemoteChanges()`** — it marks changes as `source: 'remote'`, and the IndexedDB persistence listener only persists `source: 'user'` changes. This means shapes created inside `mergeRemoteChanges` exist in memory but are NEVER saved to IndexedDB and disappear on any persistence cycle. Use direct editor API calls (`editor.createShape()`, `editor.deleteShapes()`, etc.) — these are automatically `source: 'user'` and persist correctly.
-
-**IMPORTANT:** All eval `curl` commands MUST be written as a single line (no `\` line continuations in the `-d` argument). Multi-line curl breaks with "blank argument" errors.
+**CRITICAL: Do NOT use `editor.store.mergeRemoteChanges()`** — it marks changes as `source: 'remote'`, and the IndexedDB persistence listener only persists `source: 'user'` changes. Use direct editor API calls instead.
 
 ```bash
-# Save existing canvas info for recovery, then clear all shapes
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d '{"code": "const shapes = Array.from(editor.getCurrentPageShapes()); const info = { pageId: String(editor.getCurrentPageId()), shapeCount: shapes.length, shapeTypes: shapes.map(s => s.type) }; if (shapes.length > 0) { editor.deleteShapes(shapes.map(s => s.id)); } return info"}' | jq .
+cd /Users/cameronfranz/Downloads/Possibilities/paper && python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py clear
 ```
-
-Verify the page is empty:
-
-```bash
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d '{"code": "return { shapeCount: Array.from(editor.getCurrentPageShapes()).length }"}' | jq .
-```
-
-The shape count must be `0` before proceeding. If it's not, wait 2 seconds and delete again.
 
 ---
 
@@ -113,70 +125,20 @@ cd /Users/cameronfranz/Downloads/Possibilities/paper && source .env && bun scrip
 
 Note the output directory (e.g., `/tmp/generate-TIMESTAMP/`). Images are saved as `01.png` through `06.png`.
 
-### 1d. Place images on canvas via eval
+### 1d. Place images on canvas, create frames, and zoom to fit
 
-Place the 6 generated images on the canvas in a column layout using eval. Write a shell script to do this:
-
-```bash
-#!/bin/bash
-SRC_DIR="/tmp/generate-TIMESTAMP"  # Replace with actual dir from step 1c
-DISPLAY_W=400
-
-for i in 0 1 2 3 4 5; do
-  N=$((i + 1))
-  IMG_FILE="$SRC_DIR/$(printf '%02d' $N).png"
-  Y_POS=$((100 + i * 380))
-
-  echo "Placing image $N at y=$Y_POS..."
-  IMG_B64=$(base64 < "$IMG_FILE")
-
-  cat > /tmp/evolve-place-${N}.json << EVALEOF
-{"code": "const dataUrl = 'data:image/png;base64,${IMG_B64}'; const img = new Image(); await new Promise((r,e) => { img.onload = r; img.onerror = e; img.src = dataUrl; }); const scale = ${DISPLAY_W} / img.naturalWidth; const w = ${DISPLAY_W}; const h = Math.round(img.naturalHeight * scale); const assetId = 'asset:seed-${N}-' + Math.random().toString(36).substr(2, 9); const shapeId = 'shape:seed-img-${N}'; editor.createAssets([{ id: assetId, type: 'image', typeName: 'asset', props: { name: 'seed-${N}', src: dataUrl, w: img.naturalWidth, h: img.naturalHeight, mimeType: 'image/png', isAnimated: false }, meta: {} }]); editor.createShape({ id: shapeId, type: 'image', x: 100, y: ${Y_POS}, props: { assetId: assetId, w: w, h: h } }); return { shapeId, w, h }"}
-EVALEOF
-
-  curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d @/tmp/evolve-place-${N}.json | jq -r '.result'
-  sleep 0.5
-done
-echo "Done placing all 6 images."
-```
-
-Save this script to a temp file and run it. Verify all 6 placed:
+**Single Bash call** — places all images, creates frames, and zooms to fit:
 
 ```bash
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d '{"code": "return Array.from(editor.getCurrentPageShapes()).filter(s => s.type === \"image\").length"}' | jq .
+cd /Users/cameronfranz/Downloads/Possibilities/paper && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-images /tmp/generate-TIMESTAMP --display-width 400 && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py create-frames && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py zoom-to-fit
 ```
 
-### 1e. Get image positions and create labeled frames
+Replace `/tmp/generate-TIMESTAMP` with the actual directory from step 1c. The `place-images` command auto-detects how many PNGs are in the directory and places them in a column with dynamic spacing.
 
-Query the canvas to find the placed images and create frames around each one.
-
-```bash
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d '{"code": "const shapes = Array.from(editor.getCurrentPageShapes()).filter(s => s.type === \"image\"); return shapes.map(s => ({ id: String(s.id), x: s.x, y: s.y, w: s.props.w, h: s.props.h, assetId: String(s.props.assetId) }))"}' | jq .
-```
-
-For each image, create a frame rectangle and label. Use the image positions from the query:
-
-For longer eval code, write the JSON to a temp file first to avoid shell escaping issues:
-
-```bash
-# Write the eval code to a temp file
-cat > /tmp/evolve-frames.json << 'EVALEOF'
-{"code": "const images = Array.from(editor.getCurrentPageShapes()).filter(s => s.type === 'image').sort((a, b) => a.y - b.y); const padding = 30; const topPadding = 50; const frameIds = []; const labelIds = []; for (let i = 0; i < images.length; i++) { const img = images[i]; const frameId = 'shape:frame-' + i; const labelId = 'shape:label-' + i; frameIds.push(frameId); labelIds.push(labelId); editor.createShape({ id: frameId, type: 'geo', x: img.x - padding, y: img.y - topPadding, props: { w: img.props.w + padding * 2, h: img.props.h + topPadding + padding, geo: 'rectangle', fill: 'none', color: 'grey', dash: 'solid', size: 's' } }); editor.createShape({ id: labelId, type: 'text', x: img.x + img.props.w / 2, y: img.y - topPadding + 8, props: { color: 'grey', size: 's', textAlign: 'middle', autoSize: true, richText: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Candidate ' + (i + 1) }] }] } } }); editor.sendToBack([frameId]); } return { frameIds, labelIds, count: images.length };"}
-EVALEOF
-
-# Send it
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d @/tmp/evolve-frames.json | jq .
-```
-
-**The `@file` pattern** (`-d @/tmp/file.json`) is the safest way to pass complex eval code to curl. It avoids all shell escaping and newline issues. The JSON file uses single quotes inside the JS code string (no escaping needed inside heredoc).
-
-### 1f. Zoom to fit
-
-```bash
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d '{"code": "editor.zoomToFit(); return \"ok\""}' | jq .
-```
-
-### 1g. Tell the user
+### 1e. Tell the user
 
 After seed generation, tell the user:
 > I've generated 6 candidate designs on the canvas. Each one is framed and labeled (Candidate 1–6).
@@ -201,39 +163,30 @@ This is the core loop. Annotations are **global feedback** — changes requested
 
 ### Phase A: Gather all feedback
 
-#### A1. Detect annotations on all candidates
+#### A1. Detect annotations and screenshot annotated candidates
 
-Find shapes that are inside candidate frame bounds but are NOT the frame, label, or image themselves:
-
-```bash
-cat > /tmp/evolve-detect.json << 'EVALEOF'
-{"code": "editor.zoomToFit(); const allShapes = Array.from(editor.getCurrentPageShapes()); const frames = allShapes.filter(s => String(s.id).startsWith('shape:frame-')); const labels = allShapes.filter(s => String(s.id).startsWith('shape:label-')); const images = allShapes.filter(s => s.type === 'image').sort((a, b) => a.y - b.y); const excludeIds = new Set([...frames.map(s => s.id), ...labels.map(s => s.id), ...images.map(s => s.id), ...allShapes.filter(s => String(s.id).startsWith('shape:evolve-arrow-')).map(s => s.id)]); const results = []; for (let i = 0; i < frames.length; i++) { const frame = frames[i]; const fb = editor.getShapePageBounds(frame.id); if (!fb) continue; const annotations = allShapes.filter(s => { if (excludeIds.has(s.id)) return false; const sb = editor.getShapePageBounds(s.id); if (!sb) return false; return sb.x < fb.x + fb.w && sb.x + sb.w > fb.x && sb.y < fb.y + fb.h && sb.y + sb.h > fb.y; }); const textAnnotations = []; for (const s of annotations) { if (s.props && s.props.richText && s.props.richText.content) { s.props.richText.content.forEach(block => { if (block.content) block.content.forEach(inline => { if (inline.text) textAnnotations.push(inline.text); }); }); } } results.push({ candidateIndex: i, imageId: images[i] ? String(images[i].id) : null, frameId: String(frame.id), hasAnnotations: annotations.length > 0, annotationCount: annotations.length, textAnnotations: textAnnotations, annotationIds: annotations.map(s => String(s.id)) }); } return results;"}
-EVALEOF
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d @/tmp/evolve-detect.json | jq .
-```
-
-#### A2. Screenshot annotated regions (for Claude to interpret)
-
-For each candidate that has annotations, screenshot the region showing the image + annotations together. This captures drawn marks, circles, arrows, and any visual feedback.
+**Single Bash call** — detect annotations on all candidates, then screenshot the annotated ones:
 
 ```bash
-# Screenshot a candidate region (image + annotations)
-# Replace FRAME_ID with the actual frame shape ID (e.g., shape:frame-0)
-cat > /tmp/eval-screenshot.json << 'EVALEOF'
-{"code": "editor.zoomToFit(); const fb = editor.getShapePageBounds('FRAME_ID'); if (!fb) return null; const dataUrl = await getScreenshot({ format: 'png', bounds: fb, scale: 1 }); return dataUrl;"}
-EVALEOF
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d @/tmp/eval-screenshot.json | jq -r '.result' | sed 's/^data:image\/png;base64,//' | base64 -d > /tmp/evolve-annotated-candidate-N.png
+cd /Users/cameronfranz/Downloads/Possibilities/paper && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py detect-annotations | tee /tmp/evolve-annotations.json
 ```
 
-**Note:** `getScreenshot()` is a helper available in the eval context (from EvalBridge). The `bounds` parameter accepts the Box object returned directly by `getShapePageBounds()`. Always call `editor.zoomToFit()` in the same eval call before `getShapePageBounds()` to ensure bounds are computed.
+Parse the JSON output to find which candidates have annotations (`hasAnnotations: true`). Then screenshot each annotated candidate:
 
-Run this for each annotated candidate (replace `N` with the candidate index and `FRAME_ID` accordingly).
+```bash
+cd /Users/cameronfranz/Downloads/Possibilities/paper && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py screenshot shape:frame-0 /tmp/evolve-annotated-candidate-0.png && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py screenshot shape:frame-2 /tmp/evolve-annotated-candidate-2.png
+```
 
-#### A3. Read annotated screenshots
+(Only include the frame IDs that had annotations.)
+
+#### A2. Read annotated screenshots
 
 Use the Read tool to view each saved annotated screenshot file. This lets you visually interpret all drawn annotations, circles, arrows, crossed-out areas, sticky notes, etc.
 
-#### A4. Synthesize unified change list
+#### A3. Synthesize unified change list
 
 After viewing ALL annotated screenshots and reading any text annotations from A1, produce a unified change list. This is a bulleted summary of everything the user wants changed, e.g.:
 - "Make buttons rounded with larger tap targets"
@@ -248,18 +201,28 @@ Print this change list for the user to confirm it's correct before proceeding.
 
 For each candidate (ALL of them, not just annotated ones — feedback is global):
 
-#### B1. Export the clean original image
+#### B1. Export all clean original images
 
-Extract the original image data (without annotations) from the canvas asset:
+**Single Bash call** — export clean originals for all candidates. Get the image IDs first, then export each:
 
 ```bash
-# Get the clean image data for candidate N
-# Replace IMAGE_ID with the actual image shape ID (e.g., shape:abc123)
-cat > /tmp/eval-clean-img.json << 'EVALEOF'
-{"code": "const images = Array.from(editor.getCurrentPageShapes()).filter(s => s.type === 'image'); const shape = images.find(s => String(s.id) === 'IMAGE_ID'); if (!shape) return null; const asset = editor.getAsset(shape.props.assetId); if (!asset) return null; return asset.props.src;"}
-EVALEOF
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d @/tmp/eval-clean-img.json | jq -r '.result' | sed 's/^data:image\/[a-z]*;base64,//' | base64 -d > /tmp/evolve-clean-N.png
+cd /Users/cameronfranz/Downloads/Possibilities/paper && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py get-images
 ```
+
+Then for each image shape ID returned:
+
+```bash
+cd /Users/cameronfranz/Downloads/Possibilities/paper && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-1 /tmp/evolve-clean-1.png && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-2 /tmp/evolve-clean-2.png && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-3 /tmp/evolve-clean-3.png && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-4 /tmp/evolve-clean-4.png && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-5 /tmp/evolve-clean-5.png && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-6 /tmp/evolve-clean-6.png
+```
+
+Use the actual shape IDs from `get-images`. For iteration 2+, use `get-latest` to find the most recent images.
 
 #### B2. Craft per-candidate prompt
 
@@ -272,66 +235,40 @@ Example: "Edit this mobile app UI: make all buttons rounded with 12px radius, ch
 
 #### B3. Generate evolved images (disk only)
 
-Generate all evolved images to disk first, then place them all on canvas. Use `generate.ts` with `--input-image` pointing to each clean original:
+Generate all evolved images to disk. Run in parallel with `&` and `wait`:
 
 ```bash
-# Run all 6 evolutions in parallel
+cd /Users/cameronfranz/Downloads/Possibilities/paper && source .env
 for N in 1 2 3 4 5 6; do
-  cd /Users/cameronfranz/Downloads/Possibilities/paper && source .env && bun scripts/generate.ts \
+  bun scripts/generate.ts \
     "editing prompt for candidate $N" \
     --input-image /tmp/evolve-clean-${N}.png \
     --resolution 2K --aspect-ratio CHOSEN_RATIO \
     --no-upload \
-    -o /tmp/evolve-iterM-candidate${N} &
+    -o /tmp/evolve-iter1-candidate${N} &
 done
 wait
 echo "All evolutions complete"
 ```
 
-#### B4. Place each evolved image + arrow + frame (single eval per candidate)
+#### B4. Place evolved images on canvas
 
-**CRITICAL: Do NOT hardcode positions.** Each candidate's placement must query the original image's actual position from the canvas. Use this shell loop that writes a single eval call per candidate — the eval code itself looks up the original image and positions everything relative to it:
-
-```bash
-#!/bin/bash
-ITER=1  # Current iteration number
-GAP=120  # Horizontal gap between original and evolved image
-
-for i in 0 1 2 3 4 5; do
-  N=$((i + 1))
-  IMG_FILE="/tmp/evolve-iter${ITER}-candidate${N}/01.png"
-  if [ ! -f "$IMG_FILE" ]; then
-    echo "Skipping candidate $N — no evolved image found"
-    continue
-  fi
-
-  echo "Placing evolved candidate $N..."
-  IMG_B64=$(base64 < "$IMG_FILE")
-
-  # ORIG_ID is the shape ID of the original image for this candidate.
-  # For iter 1, this is the seed image (e.g., shape:seed-img-N).
-  # For iter 2+, query the latest images first (see Step 4).
-  ORIG_ID="shape:seed-img-${N}"
-
-  cat > /tmp/evolve-place-iter${ITER}-${N}.json << EVALEOF
-{"code": "const allImages = Array.from(editor.getCurrentPageShapes()).filter(s => s.type === 'image'); const orig = allImages.find(s => String(s.id) === '${ORIG_ID}'); if (!orig) return 'original not found: ${ORIG_ID}'; const dataUrl = 'data:image/png;base64,${IMG_B64}'; const img = new Image(); await new Promise((r,e) => { img.onload = r; img.onerror = e; img.src = dataUrl; }); const displayW = orig.props.w; const scale = displayW / img.naturalWidth; const displayH = Math.round(img.naturalHeight * scale); const newX = orig.x + orig.props.w + ${GAP}; const newY = orig.y; const newShapeId = 'shape:evolved-${ITER}-${N}-' + Math.random().toString(36).substr(2, 6); const newAssetId = 'asset:evolved-${ITER}-${N}-' + Math.random().toString(36).substr(2, 6); editor.createAssets([{ id: newAssetId, type: 'image', typeName: 'asset', props: { name: 'evolved-${ITER}-${N}', src: dataUrl, w: img.naturalWidth, h: img.naturalHeight, mimeType: 'image/png', isAnimated: false }, meta: {} }]); editor.createShape({ id: newShapeId, type: 'image', x: newX, y: newY, props: { assetId: newAssetId, w: displayW, h: displayH } }); const arrowX = orig.x + orig.props.w; const arrowY = orig.y + orig.props.h / 2; editor.createShape({ id: 'shape:evolve-arrow-${ITER}-${i}', type: 'arrow', x: arrowX, y: arrowY, props: { start: { x: 0, y: 0 }, end: { x: ${GAP} - 20, y: 0 }, color: 'grey', arrowheadEnd: 'arrow', richText: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Iter ${ITER}' }] }] } } }); const padding = 30; const topPadding = 50; const frameId = 'shape:frame-iter${ITER}-${i}'; const labelId = 'shape:label-iter${ITER}-${i}'; editor.createShape({ id: frameId, type: 'geo', x: newX - padding, y: newY - topPadding, props: { w: displayW + padding * 2, h: displayH + topPadding + padding, geo: 'rectangle', fill: 'none', color: 'grey', dash: 'solid', size: 's' } }); editor.createShape({ id: labelId, type: 'text', x: newX + displayW / 2, y: newY - topPadding + 8, props: { color: 'grey', size: 's', textAlign: 'middle', autoSize: true, richText: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Candidate ${N} — Iter ${ITER}' }] }] } } }); editor.sendToBack([frameId]); return { newShapeId, newX, newY, displayW, displayH }"}
-EVALEOF
-
-  curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d @/tmp/evolve-place-iter${ITER}-${N}.json | jq -r '.result'
-  sleep 0.5
-done
-echo "All evolved images placed with arrows and frames."
-```
-
-**Why this works:** The eval code looks up `${ORIG_ID}` on the canvas and reads its actual `x, y, w, h` — then positions the new image, arrow, and frame relative to those real values. No hardcoded positions.
-
-For iteration 2+, replace `ORIG_ID` with the evolved image ID from the previous iteration (query them using the "find latest images" eval from Step 4).
-
-#### B5. Zoom to fit after all evolutions
+**CRITICAL: Do NOT hardcode positions.** The `place-evolved` command queries each original image's actual position from the canvas and places the new image + arrow + frame relative to it.
 
 ```bash
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d '{"code": "editor.zoomToFit(); return \"ok\""}' | jq .
+cd /Users/cameronfranz/Downloads/Possibilities/paper && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate1/01.png shape:seed-img-1 1 1 && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate2/01.png shape:seed-img-2 1 2 && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate3/01.png shape:seed-img-3 1 3 && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate4/01.png shape:seed-img-4 1 4 && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate5/01.png shape:seed-img-5 1 5 && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate6/01.png shape:seed-img-6 1 6 && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py zoom-to-fit
 ```
+
+Arguments: `place-evolved <evolved_image_path> <original_shape_id> <iteration_number> <candidate_number>`
+
+For iteration 2+, use `get-latest` to find the original shape IDs (the rightmost images from the previous iteration).
 
 ### After evolving, tell the user:
 
@@ -349,18 +286,15 @@ curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -
 - Go back to Step 2 (REVIEW)
 - Increment the iteration counter
 - On subsequent evolve rounds, the "original" for each candidate is now the **most recent evolved version** (the rightmost image in each candidate's row)
-- Update frame IDs to use the new iteration number: `frame-iter2-N`, `label-iter2-N`, etc.
 - Detect annotations only on the most recent iteration's frames
 
-To find the latest images for each candidate row, query by iteration:
+To find the latest images for each candidate row:
 
 ```bash
-# Find the most recent images (rightmost in each candidate row)
-cat > /tmp/eval-latest-imgs.json << 'EVALEOF'
-{"code": "const images = Array.from(editor.getCurrentPageShapes()).filter(s => s.type === 'image'); const rows = {}; for (const img of images) { const rowKey = Math.round(img.y / 50) * 50; if (!rows[rowKey]) rows[rowKey] = []; rows[rowKey].push(img); } const latest = Object.values(rows).map(row => { row.sort((a, b) => b.x - a.x); return { id: String(row[0].id), x: row[0].x, y: row[0].y, w: row[0].props.w, h: row[0].props.h, assetId: String(row[0].props.assetId) }; }); latest.sort((a, b) => a.y - b.y); return latest;"}
-EVALEOF
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d @/tmp/eval-latest-imgs.json | jq .
+cd /Users/cameronfranz/Downloads/Possibilities/paper && python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py get-latest
 ```
+
+This returns the rightmost image in each row sorted by Y position. Use these shape IDs as the `original_shape_id` argument to `place-evolved`.
 
 ---
 
@@ -376,14 +310,11 @@ When the user says "done" (or "finished", "that's good", "ship it", etc.):
    > - **Polished 4K image** — high-res final render
    > - **Something else?**
 
-2. **Screenshot the chosen design(s)** at high resolution:
+2. **Export the chosen design:**
 
 ```bash
-# Export the final chosen candidate's clean image
-cat > /tmp/eval-final-img.json << 'EVALEOF'
-{"code": "const images = Array.from(editor.getCurrentPageShapes()).filter(s => s.type === 'image'); const shape = images.find(s => String(s.id) === 'FINAL_IMAGE_ID'); if (!shape) return null; const asset = editor.getAsset(shape.props.assetId); if (!asset) return null; return asset.props.src;"}
-EVALEOF
-curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -d @/tmp/eval-final-img.json | jq -r '.result' | sed 's/^data:image\/[a-z]*;base64,//' | base64 -d > /tmp/evolve-final.png
+cd /Users/cameronfranz/Downloads/Possibilities/paper && \
+  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean FINAL_IMAGE_ID /tmp/evolve-final.png
 ```
 
 3. **Produce the requested output:**
@@ -405,12 +336,13 @@ curl -s -X POST http://localhost:3031/eval -H "Content-Type: application/json" -
 ## Important Notes
 
 ### Shape ID conventions
+- `shape:seed-img-N` — seed image for candidate N (1-indexed)
 - `shape:frame-N` — seed frame for candidate N (0-indexed)
-- `shape:label-N` — seed label for candidate N
-- `shape:frame-iterM-N` — frame for candidate N at iteration M
-- `shape:label-iterM-N` — label for candidate N at iteration M
+- `shape:label-N` — seed label for candidate N (0-indexed)
+- `shape:frame-iterM-N` — frame for candidate N at iteration M (0-indexed)
+- `shape:label-iterM-N` — label for candidate N at iteration M (0-indexed)
 - `shape:evolve-arrow-M-N` — arrow from iteration M-1 to M for candidate N
-- Image shape IDs are generated dynamically by the canvas — query them, don't hardcode
+- Evolved image shape IDs are generated dynamically — use `get-images` or `get-latest` to query them
 
 ### Annotation detection reliability
 The frame rectangles are the detection boundary. Anything drawn inside the frame that isn't the frame, label, or image is an annotation. This works because:
@@ -425,8 +357,8 @@ The frame rectangles are the detection boundary. Anything drawn inside the frame
 
 ### Performance
 - Generate all seed candidates in a single `generate.ts` call (parallel internally)
-- During evolve, you can run multiple `generate.ts` calls sequentially (each is a single image with `--input-image`)
-- Screenshots and eval calls are fast — no need to batch them
+- During evolve, run multiple `generate.ts` calls in parallel with `&` and `wait`
+- Chain eval_helper commands with `&&` to minimize Bash approvals
 
 ### Temp file paths
 - Annotated screenshots: `/tmp/evolve-annotated-candidate-N.png`
@@ -436,41 +368,29 @@ The frame rectangles are the detection boundary. Anything drawn inside the frame
 
 ### tldraw eval API gotchas (CRITICAL)
 
-These were all discovered through testing and MUST be followed:
+These apply when using `eval_helper.py eval` for custom JS code:
 
-0. **Do NOT use `editor.store.mergeRemoteChanges()`**: This marks changes as `source: 'remote'`. The IndexedDB persistence listener (`TLLocalSyncClient`) only watches for `source: 'user'` changes. Shapes created inside `mergeRemoteChanges` exist in memory but are NEVER saved to IndexedDB — they vanish on the next persistence cycle. Use direct editor API calls (`editor.createShape()`, `editor.deleteShapes()`, `editor.createAssets()`) — these are automatically `source: 'user'` and persist correctly. Also avoid `createPage()`/`setCurrentPage()` — they are unreliable via eval.
+0. **Do NOT use `editor.store.mergeRemoteChanges()`**: Marks changes as `source: 'remote'` — persistence ignores them. Use direct editor API calls.
 
-1. **Use `Array.from()` not spread**: `[...editor.getCurrentPageShapes()]` is unreliable — `.map()` on the spread result returns empty. Always use `Array.from(editor.getCurrentPageShapes())`.
+1. **Use `Array.from()` not spread**: `[...editor.getCurrentPageShapes()]` is unreliable. Always use `Array.from(editor.getCurrentPageShapes())`.
 
-2. **Use `richText` not `text`**: This tldraw version uses ProseMirror `richText` for ALL text-bearing shapes (text, note, geo, arrow). The `text` prop will crash. Always use:
+2. **Use `richText` not `text`**: This tldraw version uses ProseMirror `richText` for ALL text-bearing shapes. The `text` prop will crash.
    ```
    richText: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Your text" }] }] }
    ```
 
 3. **`textAlign` values**: Use `"start"`, `"middle"`, or `"end"`. NOT `"center"` or `"left"`.
 
-4. **Call `zoomToFit()` before `getShapePageBounds()`**: Bounds are not computed until a layout pass. Call `editor.zoomToFit()` in the SAME eval call before accessing bounds. Otherwise you get `null`.
+4. **Call `zoomToFit()` before `getShapePageBounds()`**: Bounds are not computed until a layout pass. Call `editor.zoomToFit()` in the SAME eval call before accessing bounds.
 
-5. **Use `getScreenshot()` for region screenshots**: The `editor.toImage()` API requires a Box object with `.clone()`. Instead, use the `getScreenshot()` helper (from EvalBridge, available in eval context): `await getScreenshot({ format: "png", bounds: fb, scale: 1 })`. Pass the Box from `getShapePageBounds()` directly.
+5. **Use `getScreenshot()` for region screenshots**: Use the `getScreenshot()` helper (from EvalBridge): `await getScreenshot({ format: "png", bounds: fb, scale: 1 })`.
 
-6. **Use `editor.createShape()` for arrows, not `executeAction()`**: The `agent` object on `window` may not be available. Use `editor.createShape()` directly with `type: "arrow"`, `start: {x, y}`, `end: {x, y}` props.
+6. **Use `editor.createShape()` for arrows**: `start: {x, y}`, `end: {x, y}` relative to the arrow's own `x, y` position.
 
-7. **Arrow props are `start/end` not `x1/y1/x2/y2`**: Arrow shapes take `start: {x, y}` and `end: {x, y}` relative to the arrow's own `x, y` position.
+7. **Use `for` loops not `forEach`**: `.forEach()` on iterable results can be unreliable in eval context.
 
-8. **Use `for` loops not `forEach`**: `.forEach()` on iterable results can be unreliable in eval context. Use `for` loops.
+8. **Stringify shape IDs**: Use `String(s.id)` when comparing or returning IDs.
 
-9. **Stringify shape IDs**: Shape IDs are special tldraw objects. Use `String(s.id)` when comparing or returning IDs.
+9. **Canvas cleanup**: Delete shapes on current page using direct `editor.deleteShapes()`. Do NOT create new pages.
 
-10. **Avoid `editor.getShape("string-id")`**: This sometimes returns null for existing shapes. Instead, get all shapes with `Array.from(editor.getCurrentPageShapes())` and filter with `.find(s => String(s.id) === "shape:...")`.
-
-11. **Avoid `try/catch` in eval**: The async eval wrapper doesn't properly serialize caught errors. Let errors propagate naturally.
-
-12. **Text extraction from shapes**: To read text from annotations, access `s.props.richText.content[].content[].text` (nested ProseMirror structure), not `s.props.text`.
-
-13. **JSON encoding in eval calls**: Two critical rules:
-    - Code MUST be on a single line — literal newlines cause "Bad control character" errors
-    - **ALWAYS use the `@file` pattern** for eval calls: write JSON to a temp file with `cat > /tmp/file.json << 'EVALEOF'`, then `curl -d @/tmp/file.json`. This avoids shell escaping issues. In particular, zsh expands exclamation marks to backslash-escaped versions even inside single quotes, which creates invalid JSON escapes. The `@file` pattern with a single-quote-delimited heredoc avoids this entirely.
-
-14. **Canvas cleanup**: Delete shapes on current page using direct `editor.deleteShapes()`. Do NOT create new pages — `createPage`/`setCurrentPage` are unreliable via eval (IndexedDB persistence fights them, causing shapes to appear on wrong pages). Stay on the current page.
-
-15. **Prompt engineering for flat UI**: NEVER mention device names (iPad, iPhone, laptop) in Gemini prompts — this causes Gemini to generate a photo of the physical device from a weird angle instead of a flat UI screenshot. Always say "Flat UI screenshot of a [type] app screen showing..." and describe the UI content directly.
+10. **Prompt engineering for flat UI**: NEVER mention device names (iPad, iPhone, laptop) in Gemini prompts — this causes Gemini to generate a photo of the physical device instead of a flat UI screenshot.
