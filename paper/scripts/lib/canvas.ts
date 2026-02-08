@@ -130,8 +130,12 @@ export async function uploadImage(options: UploadImageOptions): Promise<string |
       w = Math.round(w * scale);
     }
 
-    // Create asset
+    // Create asset and shape using direct editor API calls (source: 'user')
+    // so that tldraw's IndexedDB persistence picks them up automatically.
+    // Do NOT use mergeRemoteChanges — it marks changes as source: 'remote'
+    // which the persistence listener ignores.
     const assetId = "asset:" + Math.random().toString(36).substr(2, 9);
+    const shapeId = "shape:" + Math.random().toString(36).substr(2, 9);
     editor.createAssets([{
       id: assetId,
       type: "image",
@@ -147,8 +151,6 @@ export async function uploadImage(options: UploadImageOptions): Promise<string |
       meta: {},
     }]);
 
-    // Create image shape
-    const shapeId = "shape:" + Math.random().toString(36).substr(2, 9);
     editor.createShape({
       id: shapeId,
       type: "image",

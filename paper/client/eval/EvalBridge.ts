@@ -31,17 +31,40 @@ class EvalBridge {
   private reconnectAttempts = 0
   private maxReconnectAttempts = 10
   private reconnectDelay = 1000
+  private intentionalClose = false
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   /**
    * Connect to the eval WebSocket server
    */
   connect() {
-    const origin = window.location.origin.replace('paper', 'paper-eval')
+    // Close existing connection cleanly first
+    if (this.ws) {
+      this.intentionalClose = true
+      this.ws.close()
+      this.ws = null
+    }
+
+    // Cancel any pending reconnect
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = new URL(origin).host
+    let host: string
+    if (window.location.hostname.includes('paper')) {
+      // Hostname-based routing (e.g., paper.localhost → paper-eval.localhost)
+      host = new URL(window.location.origin.replace('paper', 'paper-eval')).host
+    } else {
+      // Plain localhost — eval server is on port 3031
+      const evalPort = import.meta.env.VITE_EVAL_PORT || '3031'
+      host = `${window.location.hostname}:${evalPort}`
+    }
     const url = `${proto}//${host}/eval`
     console.log(`[EvalBridge] Connecting to ${url}...`)
 
+    this.intentionalClose = false
     this.ws = new WebSocket(url)
 
     this.ws.onopen = () => {
@@ -62,7 +85,9 @@ class EvalBridge {
 
     this.ws.onclose = () => {
       console.log('[EvalBridge] Disconnected from eval server')
-      this.attemptReconnect()
+      if (!this.intentionalClose) {
+        this.attemptReconnect()
+      }
     }
 
     this.ws.onerror = (error) => {
@@ -74,7 +99,10 @@ class EvalBridge {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
       console.log(`[EvalBridge] Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`)
-      setTimeout(() => this.connect(), this.reconnectDelay)
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null
+        this.connect()
+      }, this.reconnectDelay)
     }
   }
 
@@ -250,9 +278,21 @@ class EvalBridge {
   }
 
   /**
+   * Check if connected
+   */
+  get connected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN
+  }
+
+  /**
    * Disconnect from the eval server
    */
   disconnect() {
+    this.intentionalClose = true
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     if (this.ws) {
       this.ws.close()
       this.ws = null
@@ -260,12 +300,21 @@ class EvalBridge {
   }
 }
 
-// Export singleton instance
-export const evalBridge = new EvalBridge()
+// Singleton: reuse existing instance across HMR to prevent reconnection storms
+let evalBridge: EvalBridge
 
-// Auto-connect in development
-if (import.meta.env.DEV) {
-  // Wait for the app to be ready
+if ((window as any).__evalBridge) {
+  evalBridge = (window as any).__evalBridge
+} else {
+  evalBridge = new EvalBridge()
+  ;(window as any).__evalBridge = evalBridge
+}
+
+export { evalBridge }
+
+// Auto-connect in development (only if not already connected, and not inside an iframe)
+const isInIframe = window !== window.top
+if (import.meta.env.DEV && !evalBridge.connected && !isInIframe) {
   const checkAndConnect = () => {
     if ((window as any).editor) {
       evalBridge.connect()

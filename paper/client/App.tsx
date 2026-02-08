@@ -93,11 +93,6 @@ function App() {
 						<TldrawAgentAppProvider onMount={setApp} onUnmount={handleUnmount} />
 					</Tldraw>
 				</div>
-				<iframe
-					src={window.location.origin.replace('paper', 'agent-ui') + '/'}
-					className="agent-sidebar"
-					title="pi agent"
-				/>
 			</div>
 		</TldrawUiToastsProvider>
 	)

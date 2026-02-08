@@ -14,6 +14,9 @@ export default defineConfig(() => {
 		],
 		server: {
 			allowedHosts: true,
+			watch: {
+				ignored: ['**/scripts/**', '**/eval-server.ts'],
+			},
 		},
 	}
 })

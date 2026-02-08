@@ -37,6 +37,7 @@ interface CliArgs {
   inputImages: string[]
   outputDir: string
   displayWidth: number
+  noUpload: boolean
   help: boolean
 }
 
@@ -56,6 +57,7 @@ function parseArgs(): CliArgs {
     inputImages: [],
     outputDir: defaultOutputDir,
     displayWidth: DEFAULT_DISPLAY_WIDTH,
+    noUpload: false,
     help: false,
   }
 
@@ -93,6 +95,9 @@ function parseArgs(): CliArgs {
     } else if (arg === '--display-width' || arg === '-w') {
       result.displayWidth = parseInt(args[i + 1], 10)
       i += 2
+    } else if (arg === '--no-upload') {
+      result.noUpload = true
+      i++
     } else if (!arg.startsWith('-')) {
       result.prompts.push(arg)
       i++
@@ -126,6 +131,7 @@ OPTIONS:
   -g, --gap <N>           Gap between images in pixels (default: 40)
   -w, --display-width <N> Canvas display width in pixels (default: 400)
   -o, --output-dir <DIR>  Save images to this directory (default: /tmp/generate-{timestamp})
+  --no-upload             Only save to disk, don't upload to canvas
 
 EXAMPLES:
   generate "A cozy firefly glowing softly"
@@ -179,6 +185,10 @@ async function processJob(
   console.log(`${prefix} Saved: ${filepath}`)
 
   // Upload to canvas (scaled to display width, preserving aspect ratio)
+  if (args.noUpload) {
+    return { success: true, shapeId: null, displayWidth: args.displayWidth, displayHeight: Math.round(args.displayWidth * 1.5) }
+  }
+
   const shapeId = await uploadImage({
     imageData: result.imageData,
     mimeType: result.mimeType || 'image/png',
@@ -214,32 +224,34 @@ async function main() {
     process.exit(1)
   }
 
-  // Check canvas connection
-  console.log('Checking canvas connection...')
-  const health = await checkHealth()
-  if (!health.ok || !health.browserConnected) {
-    console.error('Error: Canvas not available. Make sure tldraw is open.')
-    process.exit(1)
+  // Check canvas connection (skip if --no-upload)
+  if (!args.noUpload) {
+    console.log('Checking canvas connection...')
+    const health = await checkHealth()
+    if (!health.ok || !health.browserConnected) {
+      console.error('Error: Canvas not available. Make sure tldraw is open.')
+      process.exit(1)
+    }
+    console.log('Canvas connected')
   }
-  console.log('Canvas connected')
 
   // Create output directory
   mkdirSync(args.outputDir, { recursive: true })
   console.log(`Output dir: ${args.outputDir}\n`)
 
   // Get starting position: prefer below selection, fallback to viewport center
-  let startX = args.x
-  let startY = args.y
-  if (startX === undefined || startY === undefined) {
+  let startX = args.x ?? 100
+  let startY = args.y ?? 100
+  if (!args.noUpload && (args.x === undefined || args.y === undefined)) {
     const belowSelection = await getPositionBelowSelection(100)
     if (belowSelection) {
-      startX = startX ?? belowSelection.x
-      startY = startY ?? belowSelection.y
+      startX = args.x ?? belowSelection.x
+      startY = args.y ?? belowSelection.y
       console.log('Positioning below selection')
     } else {
       const center = await getViewportCenter()
-      startX = startX ?? center.x
-      startY = startY ?? center.y
+      startX = args.x ?? center.x
+      startY = args.y ?? center.y
       console.log('Positioning at viewport center (no selection)')
     }
   }
