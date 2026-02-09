@@ -44,7 +44,6 @@ Once you're satisfied, the skill can export your chosen design as HTML/CSS, a Re
 - [Claude Code](https://claude.ai/claude-code) with skill support
 - [tldraw](https://github.com/tldraw/tldraw) running in a browser
 - A `GEMINI_API_KEY` for image generation (via Nano Banana Pro)
-- An `ANTHROPIC_API_KEY` for the tldraw agent
 
 ### Getting started
 
@@ -55,18 +54,17 @@ Once you're satisfied, the skill can export your chosen design as HTML/CSS, a Re
    npm install
    ```
 
-2. Create a `.dev.vars` file with your API keys:
+2. Create a `.env` file with your Gemini key:
    ```
-   ANTHROPIC_API_KEY=your_key_here
-   GOOGLE_API_KEY=your_key_here
+   GEMINI_API_KEY=your_key_here
    ```
 
-3. Start the dev server:
+3. Start the tldraw dev server:
    ```bash
    npm run dev
    ```
 
-4. Open `http://localhost:5173/` and invoke the skill with `/design-evolve` in Claude Code.
+4. Open `http://localhost:5173/` and invoke the skill with `/design-evolve` in Claude Code. The skill runs through Claude Code — no separate Anthropic API key needed.
 
 ## Project structure
 
