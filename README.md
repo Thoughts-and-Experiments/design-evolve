@@ -1,4 +1,4 @@
-# Design Evolve
+# /design-evolve
 
 An experimental skill for iterative visual design exploration using AI. This is the companion tool to [Learning to Draw Again With AI](https://thoughts-and-experiments.github.io/Possibilities-Article/) — an essay on divergence, taste, and visual exploration in AI-native design workflows.
 
