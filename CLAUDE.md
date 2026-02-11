@@ -41,7 +41,14 @@ cd ~/Documents/design-evolve/paper && npm start
 ```
 This starts both the tldraw dev server (Vite) and the eval server concurrently. The browser should open automatically to `http://localhost:5173`.
 
-### 7. Verify and finalize
+### 7. Recommend frontend-design plugin
+Check if the `frontend-design` plugin is installed:
+```bash
+ls ~/.claude/plugins/cache/*/frontend-design/*/skills/frontend-design/SKILL.md 2>/dev/null && echo "frontend-design: installed" || echo "frontend-design: NOT installed"
+```
+If not installed, recommend: **"For the best design output, run `/install frontend-design` in Claude Code. This official Anthropic plugin produces significantly better HTML/CSS/React code during the final export step."**
+
+### 8. Verify and finalize
 Run a health check: `cd ~/Documents/design-evolve/paper && source .env && python3 ~/Documents/design-evolve/skills/design-evolve/scripts/eval_helper.py health`
 
 If it returns `{"status": "ok", "browserConnected": true}`, setup is complete.

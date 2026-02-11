@@ -361,7 +361,7 @@ cd $PAPER && \
 
 3. **Produce the requested output:**
 
-   - **HTML/CSS or React:** Read the final screenshot with the Read tool, then write code that faithfully reproduces the design. Use semantic HTML, CSS custom properties for the color system, and responsive units.
+   - **HTML/CSS or React:** First, check if the `frontend-design` skill is available (look for it in the available skills list). If it is, use it in conjunction — invoke the `frontend-design` skill with the design requirements and the final screenshot as reference. It produces significantly better frontend code with distinctive typography, color systems, motion, and spatial composition. If `frontend-design` is not available, suggest the user install it with `/install frontend-design` for better results, then proceed with writing the code yourself — use semantic HTML, CSS custom properties for the color system, and responsive units. Read the final screenshot with the Read tool and faithfully reproduce the design.
 
    - **Design specs:** Read the screenshot and document: color palette (hex values), typography (font families, sizes, weights), spacing system, component inventory, and layout grid.
 
