@@ -14,7 +14,7 @@ body {
 	position: fixed;
 	inset: 0;
 	display: grid;
-	grid-template-columns: 1fr 350px;
+	grid-template-columns: 1fr;
 }
 
 @media (max-width: 768px) {
@@ -29,23 +29,6 @@ body {
 	height: 100%;
 }
 
-/* Agent Sidebar (iframe) */
-
-.agent-sidebar {
-	width: 100%;
-	height: 100%;
-	border: none;
-	border-left: 1px solid var(--tl-color-low);
-}
-
-@media (max-width: 768px) {
-	.agent-sidebar {
-		height: 50vh;
-		width: 100vw;
-		border-left: none;
-		border-top: 1px solid var(--tl-color-low);
-	}
-}
 
 /* Diff viewer */
 

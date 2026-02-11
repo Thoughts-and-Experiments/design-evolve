@@ -9,6 +9,7 @@
 		"preview": "vite preview",
 		"eval-server": "npx tsx eval-server.ts",
 		"dev:eval": "concurrently \"npm run dev\" \"npm run eval-server\"",
+		"start": "concurrently \"npm run dev\" \"npm run eval-server\"",
 		"edit": "bun run scripts/edit.ts"
 	},
 	"dependencies": {

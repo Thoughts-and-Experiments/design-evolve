@@ -13,6 +13,7 @@ export default defineConfig(() => {
 			react(),
 		],
 		server: {
+			open: true,
 			allowedHosts: true,
 			watch: {
 				ignored: ['**/scripts/**', '**/eval-server.ts'],

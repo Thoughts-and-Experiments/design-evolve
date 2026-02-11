@@ -7,48 +7,91 @@ description: |
   (3) Evolve candidates via image-to-image generation incorporating feedback
   (4) Repeat annotation/evolution cycles until the user is satisfied
   (5) Converge to a final output (HTML/CSS, React, design specs, polished image, etc.)
-  This skill orchestrates generate.ts, the eval API, and nano-banana-pro for a multi-round design exploration loop. Manually invoked only.
+  This skill orchestrates generate.ts and the eval API for a multi-round design exploration loop. Manually invoked only.
 ---
 
 # Design Evolve — Iterative Visual Design Workflow
 
 You are running an iterative design evolution loop on a tldraw canvas. The user describes what they want, you generate seed candidates, the user annotates them with feedback, and you evolve the designs — repeating until convergence.
 
-## Prerequisites
+## Prerequisites — Environment Setup
 
+Before starting the workflow, you MUST discover paths and verify the environment. Run these checks and fix any issues before proceeding.
+
+### Discover the repo root
+
+Find the design-evolve repo on this machine. Try these in order:
+1. Check current working directory: `git rev-parse --show-toplevel 2>/dev/null`
+2. Check common locations: `ls ~/Documents/design-evolve/paper 2>/dev/null`
+3. If not found, ask the user where they cloned it, or offer to clone it:
+   `git clone https://github.com/Thoughts-and-Experiments/design-evolve.git ~/Documents/design-evolve`
+
+Once found, set these variables for all subsequent commands:
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && source .env && python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py health
+REPO_ROOT="<path to design-evolve repo>"
+PAPER="$REPO_ROOT/paper"
+EH="python3 $REPO_ROOT/skills/design-evolve/scripts/eval_helper.py"
 ```
 
-**Assumptions:**
-- Eval server running at `http://localhost:3031`
-- Browser connected with tldraw open
-- `GEMINI_API_KEY` set in `.env`
-- Working directory: `/Users/cameronfranz/Downloads/Possibilities/paper`
+### Check dependencies
+
+Run all checks in a single Bash call:
+```bash
+REPO_ROOT="<discovered path>"
+PAPER="$REPO_ROOT/paper"
+
+# Check node_modules
+[ -d "$PAPER/node_modules" ] && echo "deps: ok" || echo "deps: MISSING — run: cd $PAPER && npm install"
+
+# Check .env
+[ -f "$PAPER/.env" ] && echo "env: ok" || echo "env: MISSING — need GEMINI_API_KEY"
+
+# Check bun
+which bun > /dev/null 2>&1 && echo "bun: ok" || echo "bun: MISSING — run: npm install -g bun"
+
+# Check python3
+which python3 > /dev/null 2>&1 && echo "python3: ok" || echo "python3: MISSING"
+
+# Check eval server
+curl -s http://localhost:3031/health 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('eval server: ok, browser:', 'connected' if d.get('browserConnected') else 'NOT connected')" 2>/dev/null || echo "eval server: NOT running — run: cd $PAPER && npm start"
+```
+
+**If any check fails**, ask the user for permission to fix it before proceeding. Key fixes:
+- Missing deps: `cd $PAPER && npm install`
+- Missing .env: Ask user for their Gemini API key (get one at https://aistudio.google.com/apikey), then create `$PAPER/.env` with `GEMINI_API_KEY=<key>`
+- Missing bun: `npm install -g bun`
+- Eval server not running: `cd $PAPER && npm start` (runs in background — starts both Vite and eval server)
+- Browser not connected: Open `http://localhost:5173` in Chrome
+
+### Health check
+
+Once everything is set up, verify the full pipeline:
+```bash
+cd $PAPER && source .env && $EH health
+```
+
+This should return `{"status": "ok", "browserConnected": true}`. If `browserConnected` is false, tell the user to open `http://localhost:5173` in Chrome.
+
+---
 
 ## Python eval helper
 
 **All canvas operations use the bundled `eval_helper.py`** instead of raw curl commands. This reduces the number of Bash calls (each needs user approval) and avoids shell escaping issues with curl/JSON.
 
-Set this alias at the start of every Bash call for brevity:
-```bash
-EH="python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py"
+Key commands (always use the `$EH` variable set during prerequisites):
 ```
-
-Key commands:
-```
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py health                              # Check connection
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py clear                               # Delete all shapes
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py zoom-to-fit                         # Zoom to fit
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py get-images                          # List all images
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py get-latest                          # Latest image per row
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-images <dir> [--display-width 400]  # Place PNGs from dir
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py create-frames [--prefix "iter1-"] [--iter-label " — Iter 1"]
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py detect-annotations                  # Find user annotations
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py screenshot <frame_id> <output.png>  # Screenshot a frame region
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean <image_id> <output.png>  # Export clean original
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved <img.png> <orig_shape_id> <iter> <candidate_num>
-python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py eval "editor.zoomToFit(); return 'ok'"  # Run arbitrary JS
+$EH health                              # Check connection
+$EH clear                               # Delete all shapes
+$EH zoom-to-fit                         # Zoom to fit
+$EH get-images                          # List all images
+$EH get-latest                          # Latest image per row
+$EH place-images <dir> [--display-width 400]  # Place PNGs from dir
+$EH create-frames [--prefix "iter1-"] [--iter-label " — Iter 1"]
+$EH detect-annotations                  # Find user annotations
+$EH screenshot <frame_id> <output.png>  # Screenshot a frame region
+$EH export-clean <image_id> <output.png>  # Export clean original
+$EH place-evolved <img.png> <orig_shape_id> <iter> <candidate_num>
+$EH eval "editor.zoomToFit(); return 'ok'"  # Run arbitrary JS
 ```
 
 **Combine multiple commands in a single Bash call** using `&&` or `;` to minimize approvals.
@@ -72,7 +115,7 @@ Clear the current page for a fresh start. **Do NOT create new pages** — tldraw
 **CRITICAL: Do NOT use `editor.store.mergeRemoteChanges()`** — it marks changes as `source: 'remote'`, and the IndexedDB persistence listener only persists `source: 'user'` changes. Use direct editor API calls instead.
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py clear
+cd $PAPER && $EH clear
 ```
 
 ---
@@ -113,7 +156,7 @@ Example for "a drawing app for iPad":
 Use `--no-upload` to save images to disk WITHOUT placing on canvas. This avoids all tldraw sync issues during generation.
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && source .env && bun scripts/generate.ts \
+cd $PAPER && source .env && bun scripts/generate.ts \
   "prompt 1" \
   "prompt 2" \
   "prompt 3" \
@@ -130,10 +173,10 @@ Note the output directory (e.g., `/tmp/generate-TIMESTAMP/`). Images are saved a
 **Single Bash call** — places all images, creates frames, and zooms to fit:
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-images /tmp/generate-TIMESTAMP --display-width 400 && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py create-frames && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py zoom-to-fit
+cd $PAPER && \
+  $EH place-images /tmp/generate-TIMESTAMP --display-width 400 && \
+  $EH create-frames && \
+  $EH zoom-to-fit
 ```
 
 Replace `/tmp/generate-TIMESTAMP` with the actual directory from step 1c. The `place-images` command auto-detects how many PNGs are in the directory and places them in a column with dynamic spacing.
@@ -168,16 +211,16 @@ This is the core loop. Annotations are **global feedback** — changes requested
 **Single Bash call** — detect annotations on all candidates, then screenshot the annotated ones:
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py detect-annotations | tee /tmp/evolve-annotations.json
+cd $PAPER && \
+  $EH detect-annotations | tee /tmp/evolve-annotations.json
 ```
 
 Parse the JSON output to find which candidates have annotations (`hasAnnotations: true`). Then screenshot each annotated candidate:
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py screenshot shape:frame-0 /tmp/evolve-annotated-candidate-0.png && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py screenshot shape:frame-2 /tmp/evolve-annotated-candidate-2.png
+cd $PAPER && \
+  $EH screenshot shape:frame-0 /tmp/evolve-annotated-candidate-0.png && \
+  $EH screenshot shape:frame-2 /tmp/evolve-annotated-candidate-2.png
 ```
 
 (Only include the frame IDs that had annotations.)
@@ -206,20 +249,19 @@ For each candidate (ALL of them, not just annotated ones — feedback is global)
 **Single Bash call** — export clean originals for all candidates. Get the image IDs first, then export each:
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py get-images
+cd $PAPER && $EH get-images
 ```
 
 Then for each image shape ID returned:
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-1 /tmp/evolve-clean-1.png && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-2 /tmp/evolve-clean-2.png && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-3 /tmp/evolve-clean-3.png && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-4 /tmp/evolve-clean-4.png && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-5 /tmp/evolve-clean-5.png && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean shape:seed-img-6 /tmp/evolve-clean-6.png
+cd $PAPER && \
+  $EH export-clean shape:seed-img-1 /tmp/evolve-clean-1.png && \
+  $EH export-clean shape:seed-img-2 /tmp/evolve-clean-2.png && \
+  $EH export-clean shape:seed-img-3 /tmp/evolve-clean-3.png && \
+  $EH export-clean shape:seed-img-4 /tmp/evolve-clean-4.png && \
+  $EH export-clean shape:seed-img-5 /tmp/evolve-clean-5.png && \
+  $EH export-clean shape:seed-img-6 /tmp/evolve-clean-6.png
 ```
 
 Use the actual shape IDs from `get-images`. For iteration 2+, use `get-latest` to find the most recent images.
@@ -238,7 +280,7 @@ Example: "Edit this mobile app UI: make all buttons rounded with 12px radius, ch
 Generate all evolved images to disk. Run in parallel with `&` and `wait`:
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && source .env
+cd $PAPER && source .env
 for N in 1 2 3 4 5 6; do
   bun scripts/generate.ts \
     "editing prompt for candidate $N" \
@@ -256,14 +298,14 @@ echo "All evolutions complete"
 **CRITICAL: Do NOT hardcode positions.** The `place-evolved` command queries each original image's actual position from the canvas and places the new image + arrow + frame relative to it.
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate1/01.png shape:seed-img-1 1 1 && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate2/01.png shape:seed-img-2 1 2 && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate3/01.png shape:seed-img-3 1 3 && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate4/01.png shape:seed-img-4 1 4 && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate5/01.png shape:seed-img-5 1 5 && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py place-evolved /tmp/evolve-iter1-candidate6/01.png shape:seed-img-6 1 6 && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py zoom-to-fit
+cd $PAPER && \
+  $EH place-evolved /tmp/evolve-iter1-candidate1/01.png shape:seed-img-1 1 1 && \
+  $EH place-evolved /tmp/evolve-iter1-candidate2/01.png shape:seed-img-2 1 2 && \
+  $EH place-evolved /tmp/evolve-iter1-candidate3/01.png shape:seed-img-3 1 3 && \
+  $EH place-evolved /tmp/evolve-iter1-candidate4/01.png shape:seed-img-4 1 4 && \
+  $EH place-evolved /tmp/evolve-iter1-candidate5/01.png shape:seed-img-5 1 5 && \
+  $EH place-evolved /tmp/evolve-iter1-candidate6/01.png shape:seed-img-6 1 6 && \
+  $EH zoom-to-fit
 ```
 
 Arguments: `place-evolved <evolved_image_path> <original_shape_id> <iteration_number> <candidate_number>`
@@ -291,7 +333,7 @@ For iteration 2+, use `get-latest` to find the original shape IDs (the rightmost
 To find the latest images for each candidate row:
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py get-latest
+cd $PAPER && $EH get-latest
 ```
 
 This returns the rightmost image in each row sorted by Y position. Use these shape IDs as the `original_shape_id` argument to `place-evolved`.
@@ -313,8 +355,8 @@ When the user says "done" (or "finished", "that's good", "ship it", etc.):
 2. **Export the chosen design:**
 
 ```bash
-cd /Users/cameronfranz/Downloads/Possibilities/paper && \
-  python /Users/cameronfranz/Downloads/Possibilities/skills/design-evolve/scripts/eval_helper.py export-clean FINAL_IMAGE_ID /tmp/evolve-final.png
+cd $PAPER && \
+  $EH export-clean FINAL_IMAGE_ID /tmp/evolve-final.png
 ```
 
 3. **Produce the requested output:**
@@ -325,7 +367,7 @@ cd /Users/cameronfranz/Downloads/Possibilities/paper && \
 
    - **Polished 4K image:** Re-generate with `--resolution 4K` using the final design as `--input-image`:
      ```bash
-     cd /Users/cameronfranz/Downloads/Possibilities/paper && source .env && bun scripts/generate.ts \
+     cd $PAPER && source .env && bun scripts/generate.ts \
        "High fidelity polished version of this UI design, pixel-perfect, production quality" \
        --input-image /tmp/evolve-final.png \
        --resolution 4K --aspect-ratio CHOSEN_RATIO --no-upload
