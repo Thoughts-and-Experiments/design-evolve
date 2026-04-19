@@ -13,9 +13,10 @@ SEED → REVIEW → EVOLVE → REVIEW → EVOLVE → ... → CONVERGE
 ```
 
 1. **Seed** — Describe what you want. The skill generates multiple diverse UI candidates using image generation.
-2. **Review** — Annotate directly on the canvas. Circle what you like, cross out what you don't, add sticky notes with feedback.
-3. **Evolve** — The skill reads your annotations and evolves all candidates, applying your feedback globally.
-4. **Converge** — Repeat until you're happy, then export as code, design specs, or a polished image.
+2. **Review** — Annotate directly on the canvas. Circle what you like, cross out what you don't, add sticky notes with feedback. You can also **click the mic to dictate feedback** straight onto the canvas.
+3. **Hand off** — When you're ready, **right-click the canvas → Send Context**. The skill picks up your annotations and the current state.
+4. **Evolve** — The skill reads your annotations and evolves all candidates, applying your feedback globally.
+5. **Converge** — Repeat until you're happy, then export as code, design specs, or a polished image.
 
 ## Examples
 
@@ -52,6 +53,7 @@ Alternatively, follow the manual steps below.
 - **Python 3** — required for canvas operations (`eval_helper.py`)
 - **[Claude Code](https://claude.ai/claude-code)** — the skill runs through Claude Code
 - **A Gemini API key** — free at [Google AI Studio](https://aistudio.google.com/apikey)
+- *Recommended:* `/install frontend-design` in Claude Code — Anthropic's official plugin produces significantly better HTML/CSS/React output during the final export step
 
 ### Getting started
 
@@ -138,6 +140,13 @@ design-evolve/
   agent-ui/         # Agent UI bridge (experimental)
   docs/             # Documentation and images
 ```
+
+## Troubleshooting
+
+- **No status pill on the canvas?** Re-run `/design-evolve` — it re-injects the overlay.
+- **"Send Context" doesn't do anything?** The skill waits for clicks via a blocking poll; make sure your Claude Code session is still on the `/design-evolve` turn (not exited to a fresh prompt).
+- **Health check:** `cd paper && source .env && python3 ../skills/design-evolve/scripts/eval_helper.py health` — should return `{"status": "ok", "browserConnected": true}`.
+- **Image generation fails?** Verify `GEMINI_API_KEY` is set in `paper/.env` and that `bun` is on your `PATH`.
 
 ## Read the essay
 

@@ -5,3 +5,6 @@ dist/
 .wrangler/
 *.local
 .tsbuild/
+generated/
+sessions/
+.DS_Store
