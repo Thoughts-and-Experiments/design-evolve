@@ -6,8 +6,8 @@ import { readFileSync, existsSync } from 'fs'
 import { extname } from 'path'
 import type { Resolution } from './dimensions'
 
-// Use the Pro model for highest quality (same as Python nano-banana-pro)
-const GEMINI_MODEL = 'gemini-3-pro-image-preview'
+// Use Nano Banana 2 (Gemini 3.1 Flash Image) — same quality, 2x faster, half the cost
+const GEMINI_MODEL = 'gemini-3.1-flash-image-preview'
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 
 interface GeminiPart {

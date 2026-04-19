@@ -7,6 +7,8 @@ import {
 	TldrawUiToastsProvider,
 	TLUiOverrides,
 } from 'tldraw'
+import { CustomContextMenu } from './components/CustomContextMenu'
+import { StatusBar } from './components/StatusBar'
 import { TldrawAgentApp } from './agent/TldrawAgentApp'
 import {
 	TldrawAgentAppContextProvider,
@@ -66,6 +68,7 @@ function App() {
 						<CustomHelperButtons />
 					</TldrawAgentAppContextProvider>
 				),
+			ContextMenu: CustomContextMenu,
 			Overlays: () => (
 				<>
 					<TldrawOverlays />
@@ -82,6 +85,7 @@ function App() {
 
 	return (
 		<TldrawUiToastsProvider>
+			<StatusBar />
 			<div className="tldraw-agent-container">
 				<div className="tldraw-canvas">
 					<Tldraw

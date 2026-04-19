@@ -23,6 +23,17 @@ const PORT = parseInt(process.env.EVAL_PORT || '3031')
 // Track connected browsers
 let browserSocket: WebSocket | null = null
 
+// Capture exploration state
+let captureData: { timestamp: number; payload: any } | null = null
+
+// Status feed (Claude → browser)
+type StatusState = 'idle' | 'sending' | 'reading' | 'working' | 'done' | 'error'
+let status: { state: StatusState; message: string; current?: number; total?: number; ts: number } = {
+  state: 'idle',
+  message: '',
+  ts: Date.now(),
+}
+
 // Track pending requests
 const pendingRequests = new Map<string, {
   resolve: (value: any) => void
@@ -50,6 +61,67 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       status: 'ok',
       browserConnected: browserSocket !== null && browserSocket.readyState === WebSocket.OPEN,
     }))
+    return
+  }
+
+  // Capture exploration: browser signals readiness
+  if (req.method === 'POST' && req.url === '/capture') {
+    let body = ''
+    for await (const chunk of req) { body += chunk }
+    try {
+      captureData = { timestamp: Date.now(), payload: JSON.parse(body) }
+      status = { state: 'reading', message: 'Reading your annotations', ts: Date.now() }
+      console.log('[Eval Server] Capture received')
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ captured: true }))
+    } catch (e: any) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
+  // Poll for capture (Claude Code calls this)
+  if (req.method === 'GET' && req.url === '/capture') {
+    if (captureData) {
+      const data = captureData
+      captureData = null
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ captured: true, ...data }))
+    } else {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ captured: false }))
+    }
+    return
+  }
+
+  // Status: Claude posts updates here as it works
+  if (req.method === 'POST' && req.url === '/status') {
+    let body = ''
+    for await (const chunk of req) { body += chunk }
+    try {
+      const parsed = JSON.parse(body)
+      status = {
+        state: parsed.state || 'working',
+        message: parsed.message || '',
+        current: parsed.current,
+        total: parsed.total,
+        ts: Date.now(),
+      }
+      console.log('[Eval Server] Status:', status.state, status.message)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true }))
+    } catch (e: any) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
+  // Status: browser polls for current state
+  if (req.method === 'GET' && req.url === '/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(status))
     return
   }
 
